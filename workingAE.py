@@ -11,7 +11,7 @@ def displayRec(images):
 		plt.imshow(i)
 		plt.show()
 
-imgs = np.array([cv2.cvtColor(cv2.resize(cv2.imread("data/"+file), (0,0), fx=0.05, fy=0.05), cv2.COLOR_BGR2RGB) for file in os.listdir("data")])/255
+imgs = np.array([cv2.cvtColor(cv2.resize(cv2.imread("data/"+file), (0,0), fx=0.02, fy=0.02), cv2.COLOR_BGR2RGB) for file in os.listdir("data")])/255
 N = np.prod(imgs.shape[1:])
 
 base = 32
@@ -122,17 +122,17 @@ np.random.shuffle(imgs)
 img = imgs[:-5]
 test = imgs[-5:]
 
-alpha = 0.00005
+alpha = 0.0005
 lam = 0.0
 batchsize = 4
 M = img.shape[0]
 
-for i in range(10000):
+for i in range(1000):
 	print("epoch: ", i)
 	np.random.shuffle(img)
 	for j in range(M//batchsize):
 		sess.run(optimize, feed_dict={x: img[j*batchsize:(j+1)*batchsize], alfa: alpha, lambdad: lam})
-	print("LR: ", sess.run(learning_rate, feed_dict={alfa:alpha}))
+	# print("LR: ", sess.run(learning_rate, feed_dict={alfa:alpha}))
 	print("train: ", sess.run(loss, feed_dict={x: img, lambdad: lam}))
 	print("test: ", sess.run(loss, feed_dict={x: test, lambdad: lam}))
 	summ1 = sess.run(lossSummaries, feed_dict={ 
@@ -143,10 +143,14 @@ for i in range(10000):
 	summ_writer.add_summary(summ2, i)
 	summ_writer.add_summary(summ1, i)
 
-for i in sess.run(out, feed_dict={x: img[-5:]}):
-	plt.imshow(i)
+for i, val in enumerate(sess.run(out, feed_dict={x: img[-5:]})):
+	plt.imshow((img[-5:])[i])
+	plt.show()
+	plt.imshow(val)
 	plt.show()
 
-for i in sess.run(out, feed_dict={x: test}):
-	plt.imshow(i)
+for i, val in enumerate(sess.run(out, feed_dict={x: test})):
+	plt.imshow(test[i])
+	plt.show()
+	plt.imshow(val)
 	plt.show()

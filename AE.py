@@ -3,6 +3,8 @@ import numpy as np
 import os
 import random
 import json
+from kron_layers import kfcPic, kfc
+import matplotlib.pyplot as plt
 
 # def displayRec(images):
 # 	asdf = sess.run(out, feed_dict={x :images})
@@ -33,7 +35,7 @@ class CAE():
 		self.filterNum = list(map(lambda x: int(filterNum0 * filterBase**x), range(convLayerNum)))
 		self.dLayNeur = list(map(lambda x: dLayNeurBase**x, range(dLayNum+1)))
 
-		out = self.createGraph(dataShape)
+		graph = self.createGraph(dataShape)
 
 	def createGraph(self, dataShape):
 		self.graph = tf.Graph()
@@ -95,6 +97,8 @@ class CAE():
 			lossSummaries = tf.summary.merge([testLossSummary, logTestLossSummary, trainLossSummary, logTrainLossSummary])
 
 			self.summaries=tf.summary.merge([gSummaries, lossSummaries])
+			self.saver = tf.train.Saver()
+
 		return self.graph
 
 	def createDenseLayers(self,x):
@@ -109,7 +113,7 @@ class CAE():
 			A = tf.reshape(A, tf.shape(x))
 		return A
 
-	def train(self, train, test, dirname="summaries",  niter=1000, batchsize=2):
+	def train(self, train, test, dirname="summaries",  niter=1000, batchsize=2, display=False, restart=True):
 		config = tf.ConfigProto(log_device_placement=True)
 		# config.gpu_options.allow_growth = True
 		hparameters = {
@@ -139,10 +143,13 @@ class CAE():
 
 		with tf.Session(graph=self.graph, config=config) as sess:
 
-			sess.run(tf.global_variables_initializer())
+			if restart:
+				sess.run(tf.global_variables_initializer())
+
 			M = train.shape[0]
 
 			for epoch in range(niter):
+				print(epoch)
 				np.random.shuffle(train)
 				for j in range(M//batchsize):
 					sess.run(self.optimize, feed_dict={self.x: train[j*batchsize:(j+1)*batchsize]})
@@ -155,8 +162,27 @@ class CAE():
 
 				summ_writer.add_summary(summ, epoch)
 
-			finTest = sess.run(self.loss, feed_dict={self.x:test})
-			finTrain = sess.run(self.loss, feed_dict={self.x:train})
+				finTest = sess.run(self.loss, feed_dict={self.x:test})
+				finTrain = sess.run(self.loss, feed_dict={self.x:train})
+				print(finTest)
+				print(finTrain)
 
-		with open(os.path.join(dirname,"result"), "w") as f:
-			f.write(json.dumps({'finTestLoss': float(finTest), 'finTrainLoss':float(finTrain)}))
+			with open(os.path.join(dirname,"result"), "w") as f:
+				f.write(json.dumps({'finTestLoss': float(finTest), 'finTrainLoss':float(finTrain)}))
+
+			self.saver.save(sess, os.path.join(dirname,"model"))
+
+			if display:
+				for i, val in enumerate(sess.run(self.out, feed_dict={self.x: test})):
+					plt.imshow(test[i])
+					plt.show()
+					plt.imshow(val)
+					plt.show()
+
+				print("test done")
+
+				for i, val in enumerate(sess.run(self.out, feed_dict={self.x: train})):
+					plt.imshow(train[i])
+					plt.show()
+					plt.imshow(val)
+					plt.show()
