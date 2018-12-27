@@ -1,5 +1,4 @@
-data/*
-masks/*
+data*
+masks*
 *.pyc
-summaries/*
-summaries*/*
+summaries*
