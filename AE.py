@@ -6,14 +6,10 @@ import json
 import matplotlib.pyplot as plt
 from time import sleep
 
-# def displayRec(images):
-# 	asdf = sess.run(out, feed_dict={x :images})
-# 	for i in asdf:
-# 		plt.imshow(i)
-# 		plt.show()
-
-hparametersDef = {"alphaTau": 10000, "alpha0": 0.001, "lam": 0.001, "betaMom": 0.9, "betaMom2": 0.999, "convPerLayer": 1, "deconvPerLayer": 1, "convLayerNum": 3, "filterNum0": 6, "filterBase": 0, "f": 3, "dLayNum": 0, "dLayNeurBase": 0.1}
-
+hparametersDef = {"alphaTau": 10000, "alpha0": 0.001, "lam": 0.001, "betaMom": 0.9,
+				"betaMom2": 0.999, "convPerLayer": 1, "deconvPerLayer": 1,
+				"convLayerNum": 3, "filterNum0": 6, "filterBase": 0, "f": 3,
+				"dLayNum": 0, "dLayNeurBase": 0.1, "latDim": 20}
 
 class CAE():
 	def __init__(self, dataShape, hparameters=hparametersDef):
@@ -38,6 +34,8 @@ class CAE():
 		self.filterNum = list(map(lambda x: int(self.filterNum0 * self.filterBase**x), range(self.convLayerNum)))
 		self.dLayNeur = list(map(lambda x: self.dLayNeurBase**x, range(self.dLayNum+1)))
 
+		self.latDim = hparameters["latDim"]
+
 		graph = self.createGraph(dataShape)
 
 	def createGraph(self, dataShape):
@@ -45,9 +43,8 @@ class CAE():
 		self.shapes = []
 		with self.graph.as_default():
 			x = tf.placeholder(shape= ([None]+list(dataShape)), dtype=tf.float32, name="X")
-			mask = tf.placeholder(shape= ([None]+list(dataShape)[:-1]), dtype=tf.float32, name="X")
 			self.x = x
-			self.mask = mask
+			self.lr = tf.placeholder(tf.float32, shape=(), name="learning_rate")
 			gs = tf.Variable(0, trainable=False)
 
 			# create convolutional layers
@@ -81,28 +78,14 @@ class CAE():
 			with tf.variable_scope("Upscale"+str(0)):
 				A = tf.image.resize_images(A, size=tf.shape(x)[1:3])
 				for j in range(self.deconvPerLayer):
-					A = tf.layers.conv2d(A, 3, (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+					A = tf.layers.conv2d(A, 3, (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.sigmoid, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
 					A = tf.layers.dropout(A)
 				self.shapes.append(tf.shape(A))
 				self.out = A
 
-			M = tf.cast(tf.reduce_prod(tf.shape(self.x)), tf.float32)
+			self.loss = tf.losses.mean_squared_error(x, self.out) + tf.losses.get_regularization_loss()
 
-			positive = tf.boolean_mask(self.out, self.mask>0)
-			negative = tf.boolean_mask(self.out, tf.equal(self.mask, 0))
-
-			# loss1 = tf.losses.mean_squared_error(positive, tf.boolean_mask(self.out, mask>0))
-
-			# lossG = tf.losses.mean_squared_error(tf.boolean_mask(x, mask>0), positive)
-			# lossS = tf.losses.mean_squared_error(tf.boolean_mask(x, tf.equal(mask,0)), negative)
-
-			lossG = tf.math.reduce_sum(tf.square(tf.boolean_mask(x, mask>0) - positive))
-			lossS = tf.math.reduce_sum(tf.square(tf.boolean_mask(x, tf.equal(mask,0)) - negative))
-
-			# self.loss = tf.losses.mean_squared_error(x, self.out) + tf.losses.get_regularization_loss()
-			self.loss = (10000*lossG + lossS + tf.losses.get_regularization_loss())/M
-
-			self.learning_rate = tf.train.exponential_decay(self.alpha0, gs, self.alphaTau, 0.1)
+			self.learning_rate = tf.train.exponential_decay(self.lr, gs, self.alphaTau, 0.1)
 			optimizer = tf.train.AdamOptimizer(learning_rate = self.learning_rate)
 			self.optimize = optimizer.minimize(self.loss, global_step = gs)
 
@@ -115,7 +98,7 @@ class CAE():
 						gnorm = tf.sqrt(tf.reduce_mean(tf.square(g)))
 						gradSummaries.append(tf.summary.scalar(v.name, gnorm))
 				else:
-					print("eto: ", v.name, g)
+					print("Vanishing Grad: ", v.name, g)
 			gSummaries = tf.summary.merge(gradSummaries)
 
 			with tf.name_scope("loss_data"):
@@ -136,21 +119,20 @@ class CAE():
 		N=np.prod(x.get_shape().as_list()[1:])
 		with tf.variable_scope("Dense"):
 			A = tf.layers.flatten(x)
+			A = tf.layers.dense(A, self.latdim, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+			self.feat = A
+			A = tf.layers.dropout(A)
 			self.shapes.append(tf.shape(A))
-			for i in range(self.dLayNum):
-				A = tf.layers.dense(A, N*self.dLayNeur[i+1], activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
-				A = tf.layers.dropout(A)
-				self.shapes.append(tf.shape(A))
 
-			for i in reversed(range(self.dLayNum)):
-				A = tf.layers.dense(A, N*self.dLayNeur[i], activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
-				A = tf.layers.dropout(A)
-				self.shapes.append(tf.shape(A))
+			A = tf.layers.dense(A, N, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+			A = tf.layers.dropout(A)
+			self.shapes.append(tf.shape(A))
+
 			A = tf.reshape(A, tf.shape(x))
 			self.shapes.append(tf.shape(A))
 		return A
 
-	def train(self, train, test, trainMasks, testMasks, dirname="summaries",  niter=1000, batchsize=2, display=False, restart=True, printLoss=True):
+	def train(self, train, test, dirname="summaries",  niter=1000, batchsize=2, display=False, restart=True, printLoss=True):
 		config = tf.ConfigProto(log_device_placement=True)
 		# config.gpu_options.allow_growth = True
 		hparameters = {
@@ -184,6 +166,7 @@ class CAE():
 				sess.run(tf.global_variables_initializer())
 
 			if display:
+				print("Architecture:")
 				for shape in sess.run(self.shapes, feed_dict={self.x:train}):
 					print(shape)
 				input("Press any key to continue...")
@@ -194,26 +177,25 @@ class CAE():
 				print(epoch)
 
 				# Shuffle train data
-				shuffleList = np.arange(len(train))
+				shuffleList = np.arange(M)
 				np.random.shuffle(shuffleList)
 
 				train = train[shuffleList]
-				trainMasks = trainMasks[shuffleList]
-				# np.random.shuffle(train)
+
 				for j in range(M//batchsize):
-					sess.run(self.optimize, feed_dict={self.x: train[j*batchsize:(j+1)*batchsize], self.mask: trainMasks[j*batchsize:(j+1)*batchsize]})
+					sess.run(self.optimize, feed_dict={self.x: train[j*batchsize:(j+1)*batchsize], self.lr: self.alpha0})
 
 				summ = sess.run(self.summaries, feed_dict={
-										self.trainLoss: sess.run(self.loss, feed_dict={self.x:train, self.mask:trainMasks}),
-										self.testLoss: sess.run(self.loss, feed_dict={self.x:test, self.mask:testMasks}),
-										self.x: train[j*batchsize:(j+1)*batchsize],
-										self.mask: trainMasks[j*batchsize:(j+1)*batchsize]
+										self.trainLoss: sess.run(self.loss, feed_dict={self.x:train}),
+										self.testLoss: sess.run(self.loss, feed_dict={self.x:test}),
+										self.x: train[j*batchsize:(j+1)*batchsize]
+										# self.mask: trainMasks[j*batchsize:(j+1)*batchsize]
 										})
 
 				summ_writer.add_summary(summ, epoch)
 
-				finTest = sess.run(self.loss, feed_dict={self.x:test, self.mask: testMasks})
-				finTrain = sess.run(self.loss, feed_dict={self.x:train, self.mask: trainMasks})
+				finTest = sess.run(self.loss, feed_dict={self.x:test})
+				finTrain = sess.run(self.loss, feed_dict={self.x:train})
 				if printLoss:
 					print("Test: ", finTest)
 					print("Train: ", finTrain)
@@ -224,8 +206,8 @@ class CAE():
 			self.saver.save(sess, os.path.join(dirname,"model"))
 
 			if display:
-				out = sess.run(self.out, feed_dict={self.x: test, self.mask: testMasks})
-				out2 = sess.run(self.out, feed_dict={self.x: out, self.mask: testMasks})
+				out = sess.run(self.out, feed_dict={self.x: test})
+				out2 = sess.run(self.out, feed_dict={self.x: out})
 				for i, val in enumerate(out2):
 					plt.imshow(test[i])
 					plt.show()
@@ -236,8 +218,8 @@ class CAE():
 
 				print("test done")
 
-				out = sess.run(self.out, feed_dict={self.x: train, self.mask: trainMasks})
-				out2 = sess.run(self.out, feed_dict={self.x: out, self.mask: trainMasks})
+				out = sess.run(self.out, feed_dict={self.x: train})
+				out2 = sess.run(self.out, feed_dict={self.x: out})
 				for i, val in enumerate(out2):
 					plt.imshow(train[i])
 					plt.show()

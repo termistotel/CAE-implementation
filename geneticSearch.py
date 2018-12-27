@@ -7,18 +7,15 @@ import random
 import json
 from AE import CAE, hparametersDef
 
+niter = 1000
+batchsize = 1
+
 resize = 0.05
+
 npop = 10
+mutation = 0.1
 
-def loadMask(file):
-	mask = cv2.imread("masks/"+file, cv2.IMREAD_GRAYSCALE)[:1538]
-	# mask[mask>(255//2)] = 255
-	# mask[mask>(255//2)] = 0
-	mask = cv2.resize(mask[1:-1, 1:-1], (0,0), fx=resize, fy=resize)
-	# mask[mask>0] = 1
-	return mask
-
-def loadHparams(num):	
+def loadHparams(num):
 	with open(os.path.join(os.path.join("summaries", str(num)),"hparameters"), "r") as f:
 		hparams = json.load(f)
 
@@ -49,39 +46,10 @@ def clip(x, num):
 
 def randomInit():
 	hparameters = {}
-
-	hparameters["alpha0"] = 0.1**random.gauss(4.0, 0.5)
-	hparameters["alphaTau"] = 10**random.gauss(4, 0.2)
-	hparameters["lam"] = 0.1**random.gauss(7, 1)
-
-	hparameters["betaMom"] = 1 - 0.1**random.gauss(1,0.4)
-	if hparameters["betaMom"] > 0.999:
-		hparameters["betaMom"] = 0.999
-
-	hparameters["betaMom2"] = 1 - 0.1**random.gauss(3,0.4)
-	hparameters["f"] = int(random.gauss(3.5, 0.4))
-	hparameters["f"] = 3
-
-	hparameters["convLayerNum"] = int(random.gauss(2.5, 0.4))
-	if hparameters["convLayerNum"]<2:
-		hparameters["convLayerNum"]=2
-	hparameters["convLayerNum"] = 5
-
-	hparameters["convPerLayer"] = int(random.randint(1, 4))
-	hparameters["deconvPerLayer"] = int(random.randint(1, 3))
-	hparameters["dLayNum"] = int(random.gauss(1, 0.4))
-	if hparameters["dLayNum"] < 0:
-		hparameters["dLayNum"] = 1
-	hparameters["dLayNum"] = 0
-
-	hparameters["dLayNeurBase"] = random.gauss(0.5, 0.1)
-	if hparameters["dLayNeurBase"] < 0.01:
-		hparameters["dLayNeurBase"] = 0.01
-
-	hparameters["filterNum0"] = random.randint(8, 16)
-	hparameters["filterBase"] = random.gauss(1.8365, 0.4)
-	# hparameters["batchsize"] = random.randint(1,3)
-
+	for i in ["alpha0", "alphaTau", "lam", "betaMom", "betaMom2", "f",
+			"convLayerNum", "convPerLayer", "deconvPerLayer", "dLayNum",
+			"dLayNeurBase", "filterNum0", "filterBase"]:
+		hparameters[i] = generateNewGene(i)
 	return hparameters
 
 def crossover(g1, g2):
@@ -98,13 +66,13 @@ def crossover(g1, g2):
 
 def generateNewGene(name, **kwargs):
 	if name == "alpha0":
-		return 0.1**random.gauss(4.0, 0.5)
+		return 0.1**random.gauss(4.0, 1)
 
 	if name == "alphaTau":
-		return 10.0**random.gauss(4.0, 0.2)
+		return 10.0**random.gauss(4.0, 0.5)
 
 	if name == "lam":
-		return 0.1**random.gauss(7, 1)
+		return 0.1**random.randint(2, 10)
 
 	if name == "betaMom":
 		betaMom = 1 - 0.1**random.gauss(1, 0.4)
@@ -128,7 +96,7 @@ def generateNewGene(name, **kwargs):
 		return int(random.randint(1, 4))
 
 	if name == "deconvPerLayer":
-		return int(random.randint(1, 3))
+		return int(random.randint(1, 4))
 
 	if name == "dLayNum":
 		dLayNum = int(random.gauss(1,0.4))
@@ -139,14 +107,13 @@ def generateNewGene(name, **kwargs):
 		return clip(random.gauss(0.5, 0.1), 0.01)
 
 	if name == "filterNum0":
-		return random.randint(4, 18)
+		return random.randint(2, 10)
 
 	if name == "filterBase":
-		return clip(random.gauss(1.8365, 0.4), 0.05)
+		return clip(random.gauss(2, 0.5), 0.05)
 
 if __name__ == '__main__':
 	imgs = np.array([cv2.cvtColor(cv2.resize(cv2.imread("data/"+file), (0,0), fx=resize, fy=resize), cv2.COLOR_BGR2RGB) for file in sorted(os.listdir("data"))])/255
-	masks = np.array(list(map(loadMask, sorted(os.listdir("masks")))))
 
 	hparameters = [randomInit() for i in range(npop)]
 
@@ -158,33 +125,30 @@ if __name__ == '__main__':
 		np.random.shuffle(shuffleList)
 
 		imgs = imgs[shuffleList]
-		masks = masks[shuffleList]
 
 		train = imgs[:-10]
-		trainMasks = masks[:-10]
 
 		test = imgs[-10:]
-		testMasks = masks[-10:]
 
 		fitness = []
 
 		# Evaluating population
 		for i, hparameter in enumerate(hparameters):
-			# tmp = np.array(list(map(lambda x: x[1], hparameter.items())))
-			# fitness.append(1/np.sum(np.square(tmp-test)))
 			model = CAE(imgs.shape[1:], hparameter)
-			testLoss, trainLoss = model.train(train, test, trainMasks, testMasks,
-											dirname=os.path.join(os.path.join("summaries", str(generation)), str(generation)+'_'+str(i)),
-											niter=200,
-											batchsize=1,
+			testLoss, trainLoss = model.train(train, test,
+											dirname=os.path.join("summaries", str(generation), str(i)),
+											niter=niter,
+											batchsize=batchsize,
 											display=False,
-											printLoss=False)
-			fitness.append((testLoss+trainLoss)/2.0)
+											printLoss=True)
+			fitness.append(testLoss)
 
 		# Report
 		chosen = list(np.argsort(fitness))[:5]
-		with open(os.path.join(os.path.join("summaries", str(generation)), "geneticReport"), "w") as f:
-			f.write(str(chosen)+"\n"+str(list(sorted(fitness))) + "\n" + "Best of generation " + str(generation) + str(hparameters[chosen[0]]))
+		with open(os.path.join("summaries", str(generation), "geneticReport"), "w") as f:
+			f.write(str(chosen)+"\n"+str(list(sorted(fitness))) + "\n" +
+				"Best of generation " + str(generation) + "\n" +
+				str(hparameters[np.array(chosen)]))
 
 		# Selection
 		newHparameters = []
@@ -198,7 +162,7 @@ if __name__ == '__main__':
 		for child in newHparameters:
 			for key in child:
 				r = random.random()
-				if r < 0.1:
+				if r < mutation:
 					child[key] = generateNewGene(key)
 
 		# Add random children
@@ -206,5 +170,3 @@ if __name__ == '__main__':
 
 		hparameters = newHparameters
 		generation+=1
-
-
