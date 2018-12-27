@@ -14,10 +14,10 @@ def displayRec(images):
 imgs = np.array([cv2.cvtColor(cv2.resize(cv2.imread("data/"+file), (0,0), fx=0.02, fy=0.02), cv2.COLOR_BGR2RGB) for file in os.listdir("data")])/255
 N = np.prod(imgs.shape[1:])
 
-base = 32
+base = 5
 filternum = range(4)
 filternum = list(map(lambda x: base * 2**x, filternum))
-filternum = [32, 64, 64, 128]
+# filternum = [32, 64, 64, 128]
 graph1 = tf.Graph()
 with graph1.as_default():
 	x = tf.placeholder(shape= ([None]+list(imgs.shape[1:])), dtype=tf.float32)
