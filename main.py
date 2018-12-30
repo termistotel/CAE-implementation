@@ -34,9 +34,46 @@ def loadHparams(dir):
 
 	return hparams
 
+
+def buildDatabase(datadir, shape):
+	print("Rebuiling databases from " + datadir + "...")
+	imgs = np.array([cv2.cvtColor(cv2.resize(cv2.imread(os.path.join(datadir, file)), shape), cv2.COLOR_BGR2RGB) for file in sorted(os.listdir(datadir))])/255
+	# random.seed(1337)
+	shuffleList = np.arange(len(imgs))
+	np.random.shuffle(shuffleList)
+	imgs = imgs[shuffleList]
+
+	train = imgs[:-20]
+	test = imgs[-20:]
+
+	with open("train.data", 'wb') as data:
+		for img in train:
+			data.write((img).reshape(-1).tostring())
+
+	with open("test.data", 'wb') as data:
+		for img in test:
+			data.write((img).reshape(-1).tostring())
+
+	with open("train.metadata", 'w') as mdata:
+		mdata.write(json.dumps({'shape': train.shape[1:], 'length': len(train), "dtype": str(train.dtype)}))
+
+	with open("test.metadata", 'w') as mdata:
+		mdata.write(json.dumps({'shape': test.shape[1:], 'length': len(test), "dtype": str(test.dtype)}))
+
+
+def getMetaData():
+	with open("train.metadata",'r') as trainf:
+		trainm = json.load(trainf)
+
+	with open("test.metadata",'r') as testf:
+		testm = json.load(testf)
+
+	return trainm, testm
+
+
 p = argparse.ArgumentParser()
 
-p.add_argument("--imgs", required=True, type=str, default=None, help='input image dir')
+p.add_argument("--imgs", required=False, type=str, default="data/", help='input image dir')
 p.add_argument("--sums", required=False, type=str, default="summaries", help='summaries dir')
 p.add_argument("--rescale", required=False, type=int, default=1, help='resize scale')
 p.add_argument("--niter", required=False, type=int, default=1000, help='number of iterations')
@@ -55,12 +92,15 @@ inMem = args.in_memory
 remake = args.remake
 
 minShape = sorted(map(lambda file: Image.open(os.path.join(datadir, file)).size, sorted(os.listdir(datadir))))[0]
-imgs = None
 
 # Remake databases
 if remake:
-	print("Rebuiling databases...")
-	imgs = np.array([cv2.cvtColor(cv2.resize(cv2.imread(os.path.join(datadir, file)), minShape), cv2.COLOR_BGR2RGB) for file in sorted(os.listdir(datadir))])/255
+	buildDatabase(datadir, minShape)
+
+# Setting up database
+if inMem:
+	print("Setting up database from memory...")
+	imgs = np.array([cv2.cvtColor(cv2.resize(cv2.imread(os.path.join(datadir, file)), minShape), cv2.COLOR_BGR2RGB) for file in sorted(os.listdir(datadir))])
 	# random.seed(1337)
 	shuffleList = np.arange(len(imgs))
 	np.random.shuffle(shuffleList)
@@ -69,46 +109,28 @@ if remake:
 	train = imgs[:-20]
 	test = imgs[-20:]
 
-	with open("train.data", 'wb') as data:
-		for img in train:
-			data.write((img).reshape(-1).tostring())
-
-	with open("test.data", 'wb') as data:
-		for img in test:
-			data.write((img).reshape(-1).tostring())
-# Load one image for reference
-else:
-	file = os.listdir(datadir)[0]
-	img = cv2.cvtColor(cv2.resize(cv2.imread(os.path.join(datadir, file)), minShape), cv2.COLOR_BGR2RGB)/255
-
-# Setting up database
-if inMem:
-	print("Setting up database from memory...")
-	if imgs is None:
-		imgs = np.array([cv2.cvtColor(cv2.resize(cv2.imread(os.path.join(datadir, file)), minShape), cv2.COLOR_BGR2RGB) for file in sorted(os.listdir(datadir))])
-		# random.seed(1337)
-		shuffleList = np.arange(len(imgs))
-		np.random.shuffle(shuffleList)
-		imgs = imgs[shuffleList]
-
-		train = imgs[:-20]
-		test = imgs[-20:]
+	trainMeta = {"shape": train.shape[1:], "length": len(train), "dtype": str(train.dtype)}
+	testMeta = {"shape": test.shape[1:], "length": len(test), "dtype": str(test.dtype)}
 
 	trainDB = tf.data.Dataset.from_tensor_slices(train)
 	testDB = tf.data.Dataset.from_tensor_slices(test)
 
 else:
 	print("Setting up database from files: " + "train.data" + ", " + "test.data")
-	trainDB = tf.data.FixedLengthRecordDataset("train.data", np.prod(img.shape)*img.dtype.itemsize)
-	testDB = tf.data.FixedLengthRecordDataset("test.data", np.prod(img.shape)*img.dtype.itemsize)
 
-	trainDB = trainDB.map(lambda x: tf.reshape(tf.decode_raw(x, img.dtype), img.shape))
-	testDB = testDB.map(lambda x: tf.reshape(tf.decode_raw(x, img.dtype), img.shape))
+	trainMeta, testMeta = getMetaData()
+
+	trainDB = tf.data.FixedLengthRecordDataset("train.data", np.prod(trainMeta["shape"])*np.dtype(trainMeta["dtype"]).itemsize)
+	testDB = tf.data.FixedLengthRecordDataset("test.data", np.prod(testMeta["shape"])*np.dtype(testMeta["dtype"]).itemsize)
+
+	trainDB = trainDB.map(lambda x: tf.reshape(tf.decode_raw(x, np.dtype(trainMeta["dtype"])), trainMeta["shape"]))
+	testDB = testDB.map(lambda x: tf.reshape(tf.decode_raw(x, np.dtype(testMeta["dtype"])), testMeta["shape"]))
+
 
 trainDB = trainDB.shuffle(100).repeat().batch(batchsize)
 testDB = testDB.shuffle(100).repeat().batch(1)
 
-batchnum = int(len(os.listdir(datadir))/batchsize)
+batchnum = int(trainMeta["length"]/batchsize)
 
 test, train, imgs = None, None, None
 
@@ -139,9 +161,8 @@ hparameters["niter"] = niter
 print(hparameters)
 input("Press any key to continue")
 
-model = CAE(trainDB, testDB, img.shape, hparameters)
-model.train(batchnum,
-			dirname=os.path.join(sumdir, "test"),
+model = CAE(trainDB, testDB, trainMeta, testMeta, hparameters)
+model.train(dirname=os.path.join(sumdir, "test"),
 			niter=hparameters["niter"],
 			batchsize=hparameters["batchsize"],
 			display=True,

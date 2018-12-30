@@ -12,7 +12,7 @@ hparametersDef = {"alphaTau": 10000, "alpha0": 0.001, "lam": 0.001, "betaMom": 0
 				"dLayNum": 0, "dLayNeurBase": 0.1, "latDim": 20}
 
 class CAE():
-	def __init__(self, trainDB, testDB, dataShape, hparameters=hparametersDef):
+	def __init__(self, trainDB, testDB, trainMeta, testMeta, hparameters=hparametersDef):
 		self.alphaTau = hparameters["alphaTau"]
 		self.alpha0 = hparameters["alpha0"]
 		self.lam = hparameters["lam"]
@@ -36,20 +36,27 @@ class CAE():
 
 		self.latDim = hparameters["latDim"]
 
-		self.createGraph(trainDB, testDB, dataShape)
+		self.trainMeta = trainMeta
+		self.testMeta = testMeta
+
+		self.createGraph(trainDB, testDB, trainMeta["shape"])
 
 	def createGraph(self, trainDB, testDB, dataShape):
-		# self.graph = tf.Graph()
 		self.shapes = []
-		# x = tf.placeholder(shape= ([None]+list(dataShape)), dtype=tf.float32, name="X")
-		# x = tf.constant(trainDB, dtype=tf.float32, name="x")
+
+		# Database iterator and operations to reinitialize the iterator
 		iter = tf.data.Iterator.from_structure(trainDB.output_types, trainDB.output_shapes)
 		self.train_init = iter.make_initializer(trainDB)
-		# self.test_init = iter.make_initializer(testDB)
+		self.test_init = iter.make_initializer(testDB)
 
+		# Input layer
 		x = tf.to_float(iter.get_next())
 		self.x = x
+
+		# Learning rate
 		self.lr = tf.placeholder(tf.float32, shape=(), name="learning_rate")
+
+		# Global learning step counter (Used for learning rate decay calculation)
 		gs = tf.Variable(0, trainable=False)
 
 		# create convolutional layers
@@ -88,24 +95,29 @@ class CAE():
 			self.shapes.append(tf.shape(A))
 			self.out = A
 
+		# Loss and loss optimizer operations
 		self.loss = tf.losses.mean_squared_error(x, self.out) + tf.losses.get_regularization_loss()
 
 		self.learning_rate = tf.train.exponential_decay(self.lr, gs, self.alphaTau, 0.1)
+
 		optimizer = tf.train.AdamOptimizer(learning_rate = self.learning_rate)
 		self.optimize = optimizer.minimize(self.loss, global_step = gs)
 
-		grads = optimizer.compute_gradients(self.loss)
+		# Operations for creating summaries (Mainly for tensorboard use) 
 
-		gradSummaries = []
-		for g,v in grads:
-			if not g is None:
-				with tf.name_scope("grads"):
-					gnorm = tf.sqrt(tf.reduce_mean(tf.square(g)))
-					gradSummaries.append(tf.summary.scalar(v.name, gnorm))
-			else:
-				print("Vanishing Grad: ", v.name, g)
-		gSummaries = tf.summary.merge(gradSummaries)
+		# Gradient summaries
+		# grads = optimizer.compute_gradients(self.loss)
+		# gradSummaries = []
+		# for g,v in grads:
+		# 	if not g is None:
+		# 		with tf.name_scope("grads"):
+		# 			gnorm = tf.sqrt(tf.reduce_mean(tf.square(g)))
+		# 			gradSummaries.append(tf.summary.scalar(v.name, gnorm))
+		# 	else:
+		# 		print("Vanishing Grad: ", v.name, g)
+		# gSummaries = tf.summary.merge(gradSummaries)
 
+		# Loss summaries
 		with tf.name_scope("loss_data"):
 			self.testLoss = tf.placeholder(tf.float32, shape=None, name="test_loss_summary")
 			self.trainLoss = tf.placeholder(tf.float32, shape=None, name="train_loss_summary")
@@ -113,17 +125,17 @@ class CAE():
 			trainLossSummary = tf.summary.scalar("TrainLoss", self.trainLoss)
 			logTestLossSummary = tf.summary.scalar("TestLossLog", tf.log(self.testLoss))
 			logTrainLossSummary = tf.summary.scalar("TrainLossLog", tf.log(self.trainLoss))
-		lossSummaries = tf.summary.merge([testLossSummary, logTestLossSummary, trainLossSummary, logTrainLossSummary])
+		lossSummaries = tf.summary.merge([trainLossSummary, testLossSummary, logTrainLossSummary, logTestLossSummary])
 
-		self.summaries=tf.summary.merge([gSummaries, lossSummaries])
+		# self.summaries=tf.summary.merge([gSummaries, lossSummaries])
+		self.summaries=tf.summary.merge([lossSummaries])
 		self.saver = tf.train.Saver()
-
-		# return self.graph
 
 	def createDenseLayers(self,x):
 		N=np.prod(x.get_shape().as_list()[1:])
 		with tf.variable_scope("Dense"):
 			A = tf.layers.flatten(x)
+			self.shapes.append(tf.shape(A))
 			A = tf.layers.dense(A, self.latDim, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
 			self.feat = A
 			A = tf.layers.dropout(A)
@@ -137,9 +149,9 @@ class CAE():
 			self.shapes.append(tf.shape(A))
 		return A
 
-	def train(self, batchnum, dirname="summaries",  niter=1000, batchsize=2, display=False, restart=True, printLoss=True):
+	def train(self, dirname="summaries",  niter=1000, batchsize=2, display=False, restart=True, printLoss=True):
 		config = tf.ConfigProto(log_device_placement=True)
-		# config.gpu_options.allow_growth = True
+		config.gpu_options.allow_growth = True
 		hparameters = {
 						'niter': niter,
 						'batchsize': batchsize,
@@ -155,14 +167,19 @@ class CAE():
 						'dLayNum': self.dLayNum,
 						'dLayNeurBase': self.dLayNeurBase,
 						'filterNum0': self.filterNum0,
-						'filterBase': self.filterBase
+						'filterBase': self.filterBase,
+						'latDim': self.latDim
 						}
+
+		# Make directory for outputing result info
 		if not os.path.exists(dirname):
 			os.makedirs(dirname)
 
+		# Recording hyperparamters used for the model
 		with open(os.path.join(dirname,"hparameters"), "w") as f:
 			f.write(json.dumps(hparameters))
 
+		# Writer for tensorboard information
 		summ_writer = tf.summary.FileWriter(dirname)
 
 		with tf.Session(config=config) as sess:
@@ -170,62 +187,69 @@ class CAE():
 			if restart:
 				sess.run(tf.global_variables_initializer())
 
-				sess.run(self.train_init)
-
+			# Display network architectue
+			sess.run(self.train_init)
 			if display:
 				print("Architecture:")
 				for shape in sess.run(self.shapes):
 					print(shape)
 				input("Press any key to continue...")
 
+			# Main loop
 			for epoch in range(niter):
 				print(epoch)
 
-
+				# Run one epoch of train and calculate average loss on train data
+				sess.run(self.train_init)
 				finTrain = 0
-				for j in range(batchnum):
+				for j in range(int(self.trainMeta["length"]/batchsize)):
 					_, tmp = sess.run([self.optimize, self.loss], feed_dict={self.lr: self.alpha0})
 					finTrain+=tmp
-				finTrain/=batchnum
+				finTrain/=(self.trainMeta["length"]/batchsize)
 
-				# summ = sess.run(self.summaries, feed_dict={
-				# 						self.trainLoss: sess.run(self.loss, feed_dict={self.x:train}),
-				# 						self.testLoss: sess.run(self.loss, feed_dict={self.x:test}),
-				# 						self.x: train[j*batchsize:(j+1)*batchsize]
-				# 						# self.mask: trainMasks[j*batchsize:(j+1)*batchsize]
-				# 						})
-				# summ_writer.add_summary(summ, epoch)
+				# Calculate loss on test data
+				sess.run(self.test_init)
+				finTest = 0
+				for j in range(self.testMeta["length"]):
+					tmp = sess.run(self.loss)
+					finTest+=tmp
+				finTest/=self.testMeta["length"]
 
-				# finTest = sess.run(self.loss, feed_dict={self.x:test})
-				# finTrain = sess.run(self.loss, feed_dict={self.x:train})
-
+				# Results after 1 epoch of training
 				if printLoss:
-					# print("Test: ", finTest)
 					print("Train: ", finTrain)
+					print("Test: ", finTest)
 
-			with open(os.path.join(dirname,"result"), "w") as f:
-				f.write(json.dumps({'finTestLoss': float(finTest), 'finTrainLoss':float(finTrain)}))
+				# Write summaries for tensorboard
+				summ = sess.run(self.summaries, feed_dict={ self.trainLoss: finTrain, self.testLoss: finTest })
+				summ_writer.add_summary(summ, epoch)
 
+				# Write results to a file
+				with open(os.path.join(dirname,"result"), "a") as f:
+					f.write(json.dumps({'finTestLoss': float(finTest), 'finTrainLoss':float(finTrain)}))
+
+			# Save final model parameters
 			self.saver.save(sess, os.path.join(dirname,"model"))
 
+			# Displaying original and reconstructed images for visual validation
 			if display:
-				# out = sess.run(self.out, feed_dict={self.x: test})
-				# out2 = sess.run(self.out, feed_dict={self.x: out})
-				# for i, val in enumerate(out2):
-				# 	plt.imshow(test[i])
-				# 	plt.show()
-				# 	plt.imshow(out[i])
-				# 	plt.show()
-				# 	plt.imshow(val)
-				# 	plt.show()
+				sess.run(self.test_init)
+				for i in range(self.testMeta["length"]):
+					x, out = sess.run([self.x, self.out])
+					plt.imshow(x)
+					plt.show()
+					plt.imshow(out)
+					plt.show()
 
 				print("test done")
 
-				out = sess.run(self.out)
-				for i, val in enumerate(out):
-					plt.imshow(train[i])
-					plt.show()
-					plt.imshow(out[i])
-					plt.show()
+				sess.run(self.train_init)
+				for i in range(int(self.trainMeta["length"]/batchsize)):
+					xs, outs = sess.run([self.x, self.out])
+					for x, out in zip(xs, outs):
+						plt.imshow(x)
+						plt.show()
+						plt.imshow(out)
+						plt.show()
 
 		return finTest, finTrain
