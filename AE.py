@@ -151,7 +151,7 @@ class CAE():
 
 	def train(self, dirname="summaries",  niter=1000, batchsize=2, display=False, restart=True, printLoss=True):
 		config = tf.ConfigProto(log_device_placement=True)
-		config.gpu_options.allow_growth = True
+		# config.gpu_options.allow_growth = True
 		hparameters = {
 						'niter': niter,
 						'batchsize': batchsize,
@@ -236,9 +236,9 @@ class CAE():
 				sess.run(self.test_init)
 				for i in range(self.testMeta["length"]):
 					x, out = sess.run([self.x, self.out])
-					plt.imshow(x)
+					plt.imshow(x[0])
 					plt.show()
-					plt.imshow(out)
+					plt.imshow(out[0])
 					plt.show()
 
 				print("test done")

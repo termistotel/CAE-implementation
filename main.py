@@ -12,7 +12,7 @@ from PIL import Image
 import tensorflow as tf
 
 
-def loadHparams(dir):	
+def loadHparams(dir):
 	with open(os.path.join(dir,"hparameters"), "r") as f:
 		hparams = json.load(f)
 
@@ -91,15 +91,16 @@ rescale = args.rescale
 inMem = args.in_memory
 remake = args.remake
 
-minShape = sorted(map(lambda file: Image.open(os.path.join(datadir, file)).size, sorted(os.listdir(datadir))))[0]
 
 # Remake databases
 if remake:
+	minShape = sorted(map(lambda file: Image.open(os.path.join(datadir, file)).size, sorted(os.listdir(datadir))))[0]
 	buildDatabase(datadir, minShape)
 
 # Setting up database
 if inMem:
 	print("Setting up database from memory...")
+	minShape = sorted(map(lambda file: Image.open(os.path.join(datadir, file)).size, sorted(os.listdir(datadir))))[0]
 	imgs = np.array([cv2.cvtColor(cv2.resize(cv2.imread(os.path.join(datadir, file)), minShape), cv2.COLOR_BGR2RGB) for file in sorted(os.listdir(datadir))])
 	# random.seed(1337)
 	shuffleList = np.arange(len(imgs))
@@ -142,7 +143,8 @@ hparameters = loadHparams(os.path.join(sumdir, str(21), "21_0"))
 
 # hparameters["alpha0"] = hparameters["alpha0"]/10
 # hparameters["alphaTau"] = 200000
-# hparameters["lam"] = 1*1e-4
+hparameters["lam"] = 2*1e-5
+# hparameters["lam"] = 0.0
 # hparameters["betaMom"] = 0.9
 # hparameters["betaMom2"] = 0.999
 # hparameters["f"] = 3
@@ -153,7 +155,7 @@ hparameters = loadHparams(os.path.join(sumdir, str(21), "21_0"))
 # hparameters["dLayNeurBase"] = 0.5
 # hparameters["filterNum0"] = 8
 # hparameters["filterBase"] = 1.8365
-hparameters["latDim"] = 20
+hparameters["latDim"] = 40
 
 hparameters["batchsize"] = batchsize
 hparameters["niter"] = niter
