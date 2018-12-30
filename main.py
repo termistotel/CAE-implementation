@@ -34,22 +34,32 @@ def loadHparams(dir):
 
 	return hparams
 
+def readImage(file, newsize):
+	img = cv2.imread(os.path.join(datadir, file))
+	img = cv2.resize(img, newsize)
+	img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+	return img
 
 def buildDatabase(datadir, shape):
 	print("Rebuiling databases from " + datadir + "...")
-	imgs = np.array([cv2.cvtColor(cv2.resize(cv2.imread(os.path.join(datadir, file)), shape), cv2.COLOR_BGR2RGB) for file in sorted(os.listdir(datadir))])/255
+	imgs = np.array([readImage(file, shape) for file in sorted(os.listdir(datadir))])
+	imgs /= 255
+
 	# random.seed(1337)
 	shuffleList = np.arange(len(imgs))
 	np.random.shuffle(shuffleList)
 	imgs = imgs[shuffleList]
 
+	# TODO: sklearn's test_train_split instead of this
 	train = imgs[:-20]
 	test = imgs[-20:]
 
+	# Save train set database
 	with open("train.data", 'wb') as data:
 		for img in train:
 			data.write((img).reshape(-1).tostring())
 
+	# Save dev set database
 	with open("test.data", 'wb') as data:
 		for img in test:
 			data.write((img).reshape(-1).tostring())
@@ -94,14 +104,21 @@ remake = args.remake
 
 # Remake databases
 if remake:
-	minShape = sorted(map(lambda file: Image.open(os.path.join(datadir, file)).size, sorted(os.listdir(datadir))))[0]
+	imageList = sorted(os.listdir(datadir))
+	sizes = map(lambda file: Image.open(os.path.join(datadir, file)).size, imageList)
+	minShape = sorted(sizes)[0]
 	buildDatabase(datadir, minShape)
 
 # Setting up database
 if inMem:
 	print("Setting up database from memory...")
-	minShape = sorted(map(lambda file: Image.open(os.path.join(datadir, file)).size, sorted(os.listdir(datadir))))[0]
-	imgs = np.array([cv2.cvtColor(cv2.resize(cv2.imread(os.path.join(datadir, file)), minShape), cv2.COLOR_BGR2RGB) for file in sorted(os.listdir(datadir))])
+
+	imageList = sorted(os.listdir(datadir))
+	sizes = map(lambda file: Image.open(os.path.join(datadir, file)).size, imageList)
+	minShape = sorted(sizes)[0]
+
+	imgs = np.array([readImage(file) for file in ])
+
 	# random.seed(1337)
 	shuffleList = np.arange(len(imgs))
 	np.random.shuffle(shuffleList)
@@ -121,8 +138,11 @@ else:
 
 	trainMeta, testMeta = getMetaData()
 
-	trainDB = tf.data.FixedLengthRecordDataset("train.data", np.prod(trainMeta["shape"])*np.dtype(trainMeta["dtype"]).itemsize)
-	testDB = tf.data.FixedLengthRecordDataset("test.data", np.prod(testMeta["shape"])*np.dtype(testMeta["dtype"]).itemsize)
+	bytesPerTrainPoint = np.prod(trainMeta["shape"]) * np.dtype(trainMeta["dtype"]).itemsize
+	bytesPerTestPoint = np.prod(testMeta["shape"]) * np.dtype(testMeta["dtype"]).itemsize
+
+	trainDB = tf.data.FixedLengthRecordDataset("train.data", bytesPerTrainPoint)
+	testDB = tf.data.FixedLengthRecordDataset("test.data", bytesPerTestPoint)
 
 	trainDB = trainDB.map(lambda x: tf.reshape(tf.decode_raw(x, np.dtype(trainMeta["dtype"])), trainMeta["shape"]))
 	testDB = testDB.map(lambda x: tf.reshape(tf.decode_raw(x, np.dtype(testMeta["dtype"])), testMeta["shape"]))
