@@ -8,6 +8,7 @@ import json
 from AE import CAE, hparametersDef
 import argparse
 from PIL import Image
+from sklearn.model_selection import train_test_split
 
 import tensorflow as tf
 
@@ -43,16 +44,19 @@ def readImage(file, newsize):
 def buildDatabase(datadir, shape):
 	print("Rebuiling databases from " + datadir + "...")
 	imgs = np.array([readImage(file, shape) for file in sorted(os.listdir(datadir))])
-	imgs /= 255
+	imgs = imgs/255
 
 	# random.seed(1337)
 	shuffleList = np.arange(len(imgs))
 	np.random.shuffle(shuffleList)
 	imgs = imgs[shuffleList]
 
-	# TODO: sklearn's test_train_split instead of this
-	train = imgs[:-20]
-	test = imgs[-20:]
+	# Split images into train, dev and test set
+	train, devtest = train_test_split(imgs, test_size=0.2)
+	dev, test = train_test_split(devtest, test_size=0.5)
+
+	print(train.shape, dev.shape, test.shape)
+	input()
 
 	# Save train set database
 	with open("train.data", 'wb') as data:
@@ -60,13 +64,24 @@ def buildDatabase(datadir, shape):
 			data.write((img).reshape(-1).tostring())
 
 	# Save dev set database
+	with open("dev.data", 'wb') as data:
+		for img in dev:
+			data.write((img).reshape(-1).tostring())
+
+	# Save test set database
 	with open("test.data", 'wb') as data:
 		for img in test:
 			data.write((img).reshape(-1).tostring())
 
+	# Save train set metadata
 	with open("train.metadata", 'w') as mdata:
 		mdata.write(json.dumps({'shape': train.shape[1:], 'length': len(train), "dtype": str(train.dtype)}))
 
+	# Save train set metadata
+	with open("dev.metadata", 'w') as mdata:
+		mdata.write(json.dumps({'shape': dev.shape[1:], 'length': len(dev), "dtype": str(dev.dtype)}))
+
+	# Save test set metadata
 	with open("test.metadata", 'w') as mdata:
 		mdata.write(json.dumps({'shape': test.shape[1:], 'length': len(test), "dtype": str(test.dtype)}))
 
@@ -75,10 +90,13 @@ def getMetaData():
 	with open("train.metadata",'r') as trainf:
 		trainm = json.load(trainf)
 
+	with open("dev.metadata",'r') as devf:
+		devm = json.load(devf)
+
 	with open("test.metadata",'r') as testf:
 		testm = json.load(testf)
 
-	return trainm, testm
+	return trainm, devm, testm
 
 
 p = argparse.ArgumentParser()
@@ -106,7 +124,9 @@ remake = args.remake
 if remake:
 	imageList = sorted(os.listdir(datadir))
 	sizes = map(lambda file: Image.open(os.path.join(datadir, file)).size, imageList)
-	minShape = sorted(sizes)[0]
+	minShape = sorted(list(set(sizes)))[1]
+	print("Reshaping images to: " + str(minShape))
+	input("Press any key to continue...")
 	buildDatabase(datadir, minShape)
 
 # Setting up database
@@ -115,46 +135,50 @@ if inMem:
 
 	imageList = sorted(os.listdir(datadir))
 	sizes = map(lambda file: Image.open(os.path.join(datadir, file)).size, imageList)
-	minShape = sorted(sizes)[0]
+	minShape = sorted(sizes)[1]
 
-	imgs = np.array([readImage(file) for file in ])
+	imgs = np.array([readImage(file) for file in imageList])
 
 	# random.seed(1337)
 	shuffleList = np.arange(len(imgs))
 	np.random.shuffle(shuffleList)
 	imgs = imgs[shuffleList]
 
-	train = imgs[:-20]
-	test = imgs[-20:]
+	# Split images into train, dev and test set
+	train, devtest = train_test_split(imgs, test_size=0.2)
+	dev, test = train_test_split(devtest, test_size=0.5)
 
 	trainMeta = {"shape": train.shape[1:], "length": len(train), "dtype": str(train.dtype)}
+	devMeta = {"shape": dev.shape[1:], "length": len(dev), "dtype": str(dev.dtype)}
 	testMeta = {"shape": test.shape[1:], "length": len(test), "dtype": str(test.dtype)}
 
 	trainDB = tf.data.Dataset.from_tensor_slices(train)
+	devDB = tf.data.Dataset.from_tensor_slices(dev)
 	testDB = tf.data.Dataset.from_tensor_slices(test)
 
 else:
-	print("Setting up database from files: " + "train.data" + ", " + "test.data")
+	print("Setting up database from files: " + "train.data, dev.data & test.data")
 
-	trainMeta, testMeta = getMetaData()
+	trainMeta, devMeta, testMeta = getMetaData()
 
 	bytesPerTrainPoint = np.prod(trainMeta["shape"]) * np.dtype(trainMeta["dtype"]).itemsize
+	bytesPerDevPoint = np.prod(devMeta["shape"]) * np.dtype(devMeta["dtype"]).itemsize
 	bytesPerTestPoint = np.prod(testMeta["shape"]) * np.dtype(testMeta["dtype"]).itemsize
 
 	trainDB = tf.data.FixedLengthRecordDataset("train.data", bytesPerTrainPoint)
+	devDB = tf.data.FixedLengthRecordDataset("dev.data", bytesPerDevPoint)
 	testDB = tf.data.FixedLengthRecordDataset("test.data", bytesPerTestPoint)
 
 	trainDB = trainDB.map(lambda x: tf.reshape(tf.decode_raw(x, np.dtype(trainMeta["dtype"])), trainMeta["shape"]))
+	devDB = devDB.map(lambda x: tf.reshape(tf.decode_raw(x, np.dtype(devMeta["dtype"])), devMeta["shape"]))
 	testDB = testDB.map(lambda x: tf.reshape(tf.decode_raw(x, np.dtype(testMeta["dtype"])), testMeta["shape"]))
 
 
 trainDB = trainDB.shuffle(100).repeat().batch(batchsize)
+devDB = devDB.shuffle(100).repeat().batch(1)
 testDB = testDB.shuffle(100).repeat().batch(1)
 
-batchnum = int(trainMeta["length"]/batchsize)
-
-test, train, imgs = None, None, None
-
+test, dev, train, imgs = None, None, None, None
 
 
 hparameters = {}
