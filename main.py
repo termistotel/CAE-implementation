@@ -137,7 +137,8 @@ if inMem:
 	sizes = map(lambda file: Image.open(os.path.join(datadir, file)).size, imageList)
 	minShape = sorted(sizes)[1]
 
-	imgs = np.array([readImage(file) for file in imageList])
+	imgs = np.array([readImage(file, minShape) for file in imageList])
+	imgs = imgs/255.0
 
 	# random.seed(1337)
 	shuffleList = np.arange(len(imgs))

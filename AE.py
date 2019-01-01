@@ -61,41 +61,11 @@ class CAE():
 		# Global learning step counter (Used for learning rate decay calculation)
 		gs = tf.Variable(0, trainable=False)
 
-		# create convolutional layers
-		A = x
-		self.shapes.append(tf.shape(A))
-		convLayersOut = []
-		for i in range(self.convLayerNum):
-			with tf.variable_scope("Conv"+str(i)):
-				for j in range(self.convPerLayer):
-					A = tf.layers.conv2d(A, self.filterNum[i], (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
-					A = tf.layers.dropout(A)
-				if i < (self.convLayerNum-1):
-					A = tf.layers.max_pooling2d(A, (2,2), (2,2), padding="SAME")
-				self.shapes.append(tf.shape(A))
-				convLayersOut.append(A)
+		# Create encoder
+		encout = self.createEncoder(x)
 
-		# create dense layers
-		A = self.createDenseLayers(A)
-
-		# create upscale layers
-		convLayersOut.pop()
-		for i in list(reversed(range(self.convLayerNum)))[1:]:
-			with tf.variable_scope("Upscale"+str(i+1)):
-				A = tf.image.resize_images(A, size=tf.shape(convLayersOut.pop())[1:3])
-				for j in range(self.deconvPerLayer):
-					A = tf.layers.conv2d(A, self.filterNum[i], (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
-					A = tf.layers.dropout(A)
-				self.shapes.append(tf.shape(A))
-
-		# Output layer
-		with tf.variable_scope("Upscale"+str(0)):
-			A = tf.image.resize_images(A, size=tf.shape(x)[1:3])
-			for j in range(self.deconvPerLayer):
-				A = tf.layers.conv2d(A, 3, (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.sigmoid, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
-				A = tf.layers.dropout(A)
-			self.shapes.append(tf.shape(A))
-			self.out = A
+		# Create decoder
+		out = self.createDecoder(encout)
 
 		# Loss and loss optimizer operations
 		self.loss = tf.losses.mean_squared_error(x, self.out) + tf.losses.get_regularization_loss()
@@ -133,23 +103,64 @@ class CAE():
 		self.summaries=tf.summary.merge([lossSummaries])
 		self.saver = tf.train.Saver()
 
-	def createDenseLayers(self,x):
-		N=np.prod(x.get_shape().as_list()[1:])
-		with tf.variable_scope("Dense"):
-			A = tf.layers.flatten(x)
+
+	def createEncoder(self, encIn):
+		# create convolutional layers
+		A = encIn
+		self.shapes.append(tf.shape(A))
+		for i in range(self.convLayerNum):
+			with tf.variable_scope("Conv"+str(i)):
+				for j in range(self.convPerLayer):
+					A = tf.layers.conv2d(A, self.filterNum[i], (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+					A = tf.layers.dropout(A)
+				if i < (self.convLayerNum-1):
+					A = tf.layers.max_pooling2d(A, (2,2), (2,2), padding="SAME")
+				self.shapes.append(tf.shape(A))
+
+		# Middle dense layer
+		self.N=np.prod(A.get_shape().as_list()[1:])
+		with tf.variable_scope("DenseEnc"):
+			A = tf.layers.flatten(A)
 			self.shapes.append(tf.shape(A))
 			A = tf.layers.dense(A, self.latDim, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
 			self.feat = A
 			A = tf.layers.dropout(A)
 			self.shapes.append(tf.shape(A))
+			self.encOut = A
 
+		return self.encOut
+
+	def createDecoder(self, decIn):
+		A = decIn
+		N = self.N
+		with tf.variable_scope("DenseDec"):
 			A = tf.layers.dense(A, N, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
 			A = tf.layers.dropout(A)
 			self.shapes.append(tf.shape(A))
 
-			A = tf.reshape(A, tf.shape(x))
+			A = tf.reshape(A, self.shapes[self.convLayerNum])
 			self.shapes.append(tf.shape(A))
-		return A
+
+		# create upscale layers
+		for i in list(reversed(range(self.convLayerNum)))[1:]:
+			with tf.variable_scope("Upscale"+str(i+1)):
+				shape = self.shapes[i+1]
+				A = tf.image.resize_images(A, size=shape[1:3] )
+				for j in range(self.deconvPerLayer):
+					A = tf.layers.conv2d(A, self.filterNum[i], (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+					A = tf.layers.dropout(A)
+				self.shapes.append(tf.shape(A))
+
+		# Output layer
+		with tf.variable_scope("Upscale"+str(0)):
+			A = tf.image.resize_images(A, size=self.shapes[0][1:3])
+			for j in range(self.deconvPerLayer):
+				A = tf.layers.conv2d(A, 3, (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.sigmoid, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+				A = tf.layers.dropout(A)
+			self.shapes.append(tf.shape(A))
+			self.out = A
+
+		return self.out
 
 	def train(self, dirname="summaries",  niter=1000, batchsize=2, display=False, restart=True, printLoss=True):
 		config = tf.ConfigProto(log_device_placement=True)
