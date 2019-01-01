@@ -307,7 +307,7 @@ if __name__ == '__main__':
 			for key in child:
 				r = random.random()
 				if r < mutation:
-					child[key] = generateNewGene(key)
+					child[key] = generateNewGene(key, mus=chosen[0])
 
 		# Add random children
 		newHparameters = newHparameters[:npop] + [randomInit() for i in range(npop - len(newHparameters))]
