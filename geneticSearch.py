@@ -194,8 +194,8 @@ if __name__ == '__main__':
 	p.add_argument("--batch-size", required=False, type=int, default=1, help='batch size')
 	p.add_argument("--in-memory", action='store_true', help='Keep data in memory')
 	p.add_argument("--remake", action='store_true', help='Remake database')
-	p.add_argument("--npop",required=False, type=int, default=10, help='Remake database')
-	p.add_argument("--mchance",required=False, type=int, default=0.1, help='Remake database')
+	p.add_argument("--npop",required=False, type=int, default=10, help='Population number per generation')
+	p.add_argument("--mchance",required=False, type=int, default=0.1, help='Mutation chance')
 
 	args = p.parse_args()
 
@@ -279,8 +279,8 @@ if __name__ == '__main__':
 
 		# Evaluating population
 		for i, hparameter in enumerate(hparameters):
-			model = CAE(trainDB, testDB, trainMeta, testMeta, hparameter)
-			testLoss, trainLoss = model.train(dirname=os.path.join("summaries", str(generation), str(i)),
+			model = CAE(trainDB, devDB, testDB, trainMeta, devMeta, testMeta, hparameter)
+			devLoss, trainLoss = model.train(dirname=os.path.join("summaries", str(generation), str(i)),
 											niter=niter,
 											batchsize=batchsize,
 											display=False,
