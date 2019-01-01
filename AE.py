@@ -12,7 +12,7 @@ hparametersDef = {"alphaTau": 10000, "alpha0": 0.001, "lam": 0.001, "betaMom": 0
 				"dLayNum": 0, "dLayNeurBase": 0.1, "latDim": 20}
 
 class CAE():
-	def __init__(self, trainDB, testDB, trainMeta, testMeta, hparameters=hparametersDef):
+	def __init__(self, trainDB, devDB, testDB, trainMeta, devMeta, testMeta, hparameters=hparametersDef):
 		self.alphaTau = hparameters["alphaTau"]
 		self.alpha0 = hparameters["alpha0"]
 		self.lam = hparameters["lam"]
@@ -37,16 +37,18 @@ class CAE():
 		self.latDim = hparameters["latDim"]
 
 		self.trainMeta = trainMeta
+		self.devMeta = devMeta
 		self.testMeta = testMeta
 
-		self.createGraph(trainDB, testDB, trainMeta["shape"])
+		self.createGraph(trainDB, devDB, testDB, trainMeta["shape"])
 
-	def createGraph(self, trainDB, testDB, dataShape):
+	def createGraph(self, trainDB, devDB, testDB, dataShape):
 		self.shapes = []
 
 		# Database iterator and operations to reinitialize the iterator
 		iter = tf.data.Iterator.from_structure(trainDB.output_types, trainDB.output_shapes)
 		self.train_init = iter.make_initializer(trainDB)
+		self.dev_init = iter.make_initializer(devDB)
 		self.test_init = iter.make_initializer(testDB)
 
 		# Input layer
@@ -119,13 +121,13 @@ class CAE():
 
 		# Loss summaries
 		with tf.name_scope("loss_data"):
-			self.testLoss = tf.placeholder(tf.float32, shape=None, name="test_loss_summary")
+			self.devLoss = tf.placeholder(tf.float32, shape=None, name="dev_loss_summary")
 			self.trainLoss = tf.placeholder(tf.float32, shape=None, name="train_loss_summary")
-			testLossSummary = tf.summary.scalar("TestLoss", self.testLoss)
+			devLossSummary = tf.summary.scalar("DevLoss", self.devLoss)
 			trainLossSummary = tf.summary.scalar("TrainLoss", self.trainLoss)
-			logTestLossSummary = tf.summary.scalar("TestLossLog", tf.log(self.testLoss))
+			logDevLossSummary = tf.summary.scalar("DevLossLog", tf.log(self.devLoss))
 			logTrainLossSummary = tf.summary.scalar("TrainLossLog", tf.log(self.trainLoss))
-		lossSummaries = tf.summary.merge([trainLossSummary, testLossSummary, logTrainLossSummary, logTestLossSummary])
+		lossSummaries = tf.summary.merge([trainLossSummary, devLossSummary, logTrainLossSummary, logDevLossSummary])
 
 		# self.summaries=tf.summary.merge([gSummaries, lossSummaries])
 		self.summaries=tf.summary.merge([lossSummaries])
@@ -207,41 +209,41 @@ class CAE():
 					finTrain+=tmp
 				finTrain/=(self.trainMeta["length"]/batchsize)
 
-				# Calculate loss on test data
-				sess.run(self.test_init)
-				finTest = 0
-				for j in range(self.testMeta["length"]):
+				# Calculate loss on dev data
+				sess.run(self.dev_init)
+				finDev = 0
+				for j in range(self.devMeta["length"]):
 					tmp = sess.run(self.loss)
-					finTest+=tmp
-				finTest/=self.testMeta["length"]
+					finDev+=tmp
+				finDev/=self.devMeta["length"]
 
 				# Results after 1 epoch of training
 				if printLoss:
 					print("Train: ", finTrain)
-					print("Test: ", finTest)
+					print("Dev: ", finDev)
 
 				# Write summaries for tensorboard
-				summ = sess.run(self.summaries, feed_dict={ self.trainLoss: finTrain, self.testLoss: finTest })
+				summ = sess.run(self.summaries, feed_dict={ self.trainLoss: finTrain, self.devLoss: finDev })
 				summ_writer.add_summary(summ, epoch)
 
 				# Write results to a file
 				with open(os.path.join(dirname,"result"), "a") as f:
-					f.write(json.dumps({'finTestLoss': float(finTest), 'finTrainLoss':float(finTrain)}))
+					f.write(json.dumps({'finDevLoss': float(finDev), 'finTrainLoss':float(finTrain)}))
 
 			# Save final model parameters
 			self.saver.save(sess, os.path.join(dirname,"model"))
 
 			# Displaying original and reconstructed images for visual validation
 			if display:
-				sess.run(self.test_init)
-				for i in range(self.testMeta["length"]):
+				sess.run(self.dev_init)
+				for i in range(self.devMeta["length"]):
 					x, out = sess.run([self.x, self.out])
 					plt.imshow(x[0])
 					plt.show()
 					plt.imshow(out[0])
 					plt.show()
 
-				print("test done")
+				print("dev done")
 
 				sess.run(self.train_init)
 				for i in range(int(self.trainMeta["length"]/batchsize)):
@@ -252,4 +254,4 @@ class CAE():
 						plt.imshow(out)
 						plt.show()
 
-		return finTest, finTrain
+		return finDev, finTrain

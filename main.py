@@ -207,7 +207,7 @@ hparameters["niter"] = niter
 print(hparameters)
 input("Press any key to continue")
 
-model = CAE(trainDB, testDB, trainMeta, testMeta, hparameters)
+model = CAE(trainDB, devDB, testDB, trainMeta, devMeta, testMeta, hparameters)
 model.train(dirname=os.path.join(sumdir, "test"),
 			niter=hparameters["niter"],
 			batchsize=hparameters["batchsize"],
