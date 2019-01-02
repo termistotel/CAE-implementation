@@ -202,11 +202,10 @@ class CAE():
 
 			# Display network architectue
 			sess.run(self.train_init)
-			if display:
-				print("Architecture:")
-				for shape in sess.run(self.shapes):
-					print(shape)
-				input("Press any key to continue...")
+			print("Architecture:")
+			for shape in sess.run(self.shapes):
+				print(shape)
+			# input("Press any key to continue...")
 
 			# Main loop
 			for epoch in range(niter):

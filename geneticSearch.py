@@ -154,7 +154,7 @@ def generateNewGene(name, mus=defMus, sigmas=defSigmas):
 		return betaMom
 
 	if name == "betaMom2":
-		return clip(1 - 0.1**random.gauss(*argForRNG("betaMom2", mus, sigmas, type="gaus")), 0)
+		return clip(1 - 0.1**random.gauss(*argForRNG("betaMom2", mus, sigmas, type="gaus")), 0.01)
 
 	if name == "f":
 		# return clip(int(random.gauss(*argForRNG("f", mus, sigmas, type="gaus"))), 1)
@@ -276,9 +276,12 @@ if __name__ == '__main__':
 		input("Press any key to continue...")
 		buildDatabase(datadir, minShape)
 
-	hparameter = loadHparams("startPoint")
-	hparameter["latDim"] = generateNewGene("latDim")
-	hparameters = [randomInit(hparameter) for i in range(npop)]
+	loadHparameter = loadHparams("startPoint")
+	loadHparameter["latDim"] = generateNewGene("latDim")
+	hparameters = [randomInit() for i in range(npop)]
+	for i in range(3):
+		for key in hparameters[i]:
+			hparameters[i][key] = loadHparameter[key]
 
 	generation = 0
 	while True:
@@ -317,7 +320,7 @@ if __name__ == '__main__':
 			for key in child:
 				r = random.random()
 				if r < mutation:
-					child[key] = generateNewGene(key, mus=hparameters[chosen[0]])
+					child[key] = generateNewGene(key)
 
 		# Add random children
 		newHparameters = newHparameters[:npop] + [randomInit() for i in range(npop - len(newHparameters))]

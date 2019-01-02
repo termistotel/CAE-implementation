@@ -184,11 +184,11 @@ test, dev, train, imgs = None, None, None, None
 
 hparameters = {}
 
-hparameters = loadHparams(os.path.join(sumdir, str(21), "21_0"))
+hparameters = loadHparams("startPoint")
 
 # hparameters["alpha0"] = hparameters["alpha0"]/10
 # hparameters["alphaTau"] = 200000
-hparameters["lam"] = 2*1e-5
+hparameters["lam"] = 1*1e-6
 # hparameters["lam"] = 0.0
 # hparameters["betaMom"] = 0.9
 # hparameters["betaMom2"] = 0.999
@@ -200,7 +200,7 @@ hparameters["lam"] = 2*1e-5
 # hparameters["dLayNeurBase"] = 0.5
 # hparameters["filterNum0"] = 8
 # hparameters["filterBase"] = 1.8365
-hparameters["latDim"] = 40
+hparameters["latDim"] = 30
 
 hparameters["batchsize"] = batchsize
 hparameters["niter"] = niter
