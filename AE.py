@@ -52,8 +52,7 @@ class CAE():
 		self.test_init = iter.make_initializer(testDB)
 
 		# Input layer
-		x = tf.to_float(iter.get_next())
-		self.x = x
+		self.getBatch = tf.to_float(iter.get_next())
 
 		# Learning rate
 		self.lr = tf.placeholder(tf.float32, shape=(), name="learning_rate")
@@ -62,13 +61,15 @@ class CAE():
 		gs = tf.Variable(0, trainable=False)
 
 		# Create encoder
-		encout = self.createEncoder(x)
+		self.encIn = self.getBatch
+		self.encOut = self.createEncoder(self.encIn)
 
 		# Create decoder
-		out = self.createDecoder(encout)
+		self.decIn = self.encOut
+		self.decOut = self.createDecoder(self.decIn)
 
 		# Loss and loss optimizer operations
-		self.loss = tf.losses.mean_squared_error(x, self.out) + tf.losses.get_regularization_loss()
+		self.loss = tf.losses.mean_squared_error(self.encIn, self.decOut) + tf.losses.get_regularization_loss()
 
 		self.learning_rate = tf.train.exponential_decay(self.lr, gs, self.alphaTau, 0.1)
 
@@ -158,9 +159,9 @@ class CAE():
 				A = tf.layers.conv2d(A, 3, (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.sigmoid, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
 				A = tf.layers.dropout(A)
 			self.shapes.append(tf.shape(A))
-			self.out = A
+			out = A
 
-		return self.out
+		return out
 
 	def train(self, dirname="summaries",  niter=1000, batchsize=2, display=False, restart=True, printLoss=True):
 		config = tf.ConfigProto(log_device_placement=True)
@@ -247,18 +248,26 @@ class CAE():
 			if display:
 				sess.run(self.dev_init)
 				for i in range(self.devMeta["length"]):
-					x, out = sess.run([self.x, self.out])
+					x, enc, out = sess.run([self.encIn, self.encOut, self.decOut])
 					plt.imshow(x[0])
 					plt.show()
 					plt.imshow(out[0])
 					plt.show()
+					print(enc)					
+					tmpenc = enc.copy()
+					for i in range(10):
+						tmpenc[:,0] = enc[:, 0] + 0.1*i
+						tmp = sess.run(self.decOut, feed_dict={self.decIn: tmpenc})
+						plt.imshow(tmp[0])
+						plt.show()
+
 
 				print("dev done")
 
 				sess.run(self.train_init)
 				for i in range(int(self.trainMeta["length"]/batchsize)):
-					xs, outs = sess.run([self.x, self.out])
-					for x, out in zip(xs, outs):
+					xs, encs, outs = sess.run([self.encIn, self.encOut, self.decOut])
+					for x, enc, out in zip(xs, encs, outs):
 						plt.imshow(x)
 						plt.show()
 						plt.imshow(out)
