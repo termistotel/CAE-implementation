@@ -11,12 +11,20 @@ import argparse
 from sklearn.model_selection import train_test_split
 
 defMus = {"alpha0": 4.0, "alphaTau": 4.0, "lam": 6, "betaMom": 1, "betaMom2": 3, "f": 3,
-		"convLayerNum": 2.5, "convPerLayer": 2.5, "deconvPerLayer": 2.5, "dLayNum": 1,
+		"convLayerNum": 2.5, "convPerLayer": 2, "deconvPerLayer": 1, "dLayNum": 1,
 		"dLayNeurBase": 0.5, "filterNum0": 6, "filterBase": 2}
 
-defSigmas = {"alpha0": 1, "alphaTau": 0.5, "lam": 4, "betaMom": 0.4, "betaMom2": 0.4, "f": 0.4,
-		"convLayerNum": 0.4, "convPerLayer": 1.5, "deconvPerLayer": 1.5, "dLayNum": 0.4,
+defSigmas = {"alpha0": 2, "alphaTau": 0.5, "lam": 4, "betaMom": 0.4, "betaMom2": 0.4, "f": 0.4,
+		"convLayerNum": 0.4, "convPerLayer": 1, "deconvPerLayer": 1, "dLayNum": 0.4,
 		"dLayNeurBase": 0.1, "filterNum0": 4, "filterBase": 0.5}
+
+keys = ["alpha0", "alphaTau", "lam", "betaMom", "betaMom2", "f",
+		"convLayerNum", "convPerLayer", "deconvPerLayer", "dLayNum",
+		"dLayNeurBase", "filterNum0", "filterBase", "latDim"]
+
+mutables = ["alpha0", "alphaTau", "lam", "betaMom", "betaMom2", "f",
+		"convLayerNum", "convPerLayer", "deconvPerLayer", "dLayNum",
+		"dLayNeurBase", "filterNum0", "filterBase", "latDim"]
 
 def loadHparams(dir):
 	with open(os.path.join(dir,"hparameters"), "r") as f:
@@ -112,9 +120,7 @@ def clip(x, num):
 
 def randomInit(mus = defMus):
 	hparameters = {}
-	for i in ["alpha0", "alphaTau", "lam", "betaMom", "betaMom2", "f",
-			"convLayerNum", "convPerLayer", "deconvPerLayer", "dLayNum",
-			"dLayNeurBase", "filterNum0", "filterBase", "latDim"]:
+	for i in keys:
 		hparameters[i] = generateNewGene(i, mus=defMus)
 	return hparameters
 
@@ -163,7 +169,8 @@ def generateNewGene(name, mus=defMus, sigmas=defSigmas):
 	if name == "convLayerNum":
 		cLN = clip(int(random.gauss(*argForRNG("convLayerNum", mus, sigmas, type="gaus"))), 1)
 		# return clip(cLN, 2)
-		return 5
+		# return 5
+		return random.randint(4,6)
 
 	if name == "convPerLayer":
 		return clip(int(random.randint(*argForRNG("convPerLayer", mus, sigmas, type="uniform"))), 1)
@@ -252,7 +259,7 @@ if __name__ == '__main__':
 	p.add_argument("--in-memory", action='store_true', help='Keep data in memory')
 	p.add_argument("--remake", action='store_true', help='Remake database')
 	p.add_argument("--npop",required=False, type=int, default=10, help='Population number per generation')
-	p.add_argument("--mchance",required=False, type=int, default=0.1, help='Mutation chance')
+	p.add_argument("--mchance",required=False, type=float, default=0.1, help='Mutation chance')
 
 	args = p.parse_args()
 
@@ -276,20 +283,51 @@ if __name__ == '__main__':
 		input("Press any key to continue...")
 		buildDatabase(datadir, minShape)
 
-	loadHparameter = loadHparams("startPoint")
-	loadHparameter["latDim"] = generateNewGene("latDim")
-	hparameters = [randomInit() for i in range(npop)]
-	for i in range(3):
-		for key in hparameters[i]:
-			hparameters[i][key] = loadHparameter[key]
 
-	generation = 0
+	def start(startPoint):
+		if startPoint is not None:
+			loadHparameter = loadHparams(startPoint)
+			loadHparameter["latDim"] = generateNewGene("latDim")
+			hparameters = [randomInit() for i in range(npop)]
+			for i in range(3):
+				for key in hparameters[i]:
+					hparameters[i][key] = loadHparameter[key]
+		else:
+			hparameters = [randomInit() for i in range(npop)]
+		generation = 0
+
+		return hparameters, generation
+
+	def continueGen(genNum):
+		pops = list(os.walk(os.path.join("summaries", str(genNum))))[0][1]
+		hparameters = []
+		for pop in pops:
+			loadHparameter = loadHparams(os.path.join("summaries", str(genNum), pop))
+			tmp = {}
+			for key in keys:
+				tmp[key] = loadHparameter[key]
+			hparameters.append(tmp)
+
+		for i in range(npop - len(hparameters)):
+			hparameters.append(randomInit())
+
+		return hparameters, genNum+1
+
+	# hparameters, generation = start("startPoint")
+	hparameters, generation = continueGen(29)
+
+	print(generation)
+	# print(hparameters)
+	# input()
+
 	while True:
 		fitness = []
 
 		# Evaluating population
 		for i, hparameter in enumerate(hparameters):
 			trainDB, devDB, testDB, trainMeta, devMeta, testMeta = createDatabase()
+			print(i)
+			print(hparameter)
 			model = CAE(trainDB, devDB, testDB, trainMeta, devMeta, testMeta, hparameter)
 			devLoss, trainLoss = model.train(dirname=os.path.join("summaries", str(generation), str(i)),
 											niter=niter,
@@ -318,9 +356,10 @@ if __name__ == '__main__':
 		# Mutation
 		for child in newHparameters:
 			for key in child:
-				r = random.random()
-				if r < mutation:
-					child[key] = generateNewGene(key)
+				if key in mutables:
+					r = random.random()
+					if r < mutation:
+						child[key] = generateNewGene(key)
 
 		# Add random children
 		newHparameters = newHparameters[:npop] + [randomInit() for i in range(npop - len(newHparameters))]
