@@ -52,8 +52,7 @@ class CAE():
 		self.test_init = iter.make_initializer(testDB)
 
 		# Input layer
-		x = tf.to_float(iter.get_next())
-		self.x = x
+		self.getBatch = tf.to_float(iter.get_next())
 
 		# Learning rate
 		self.lr = tf.placeholder(tf.float32, shape=(), name="learning_rate")
@@ -61,44 +60,16 @@ class CAE():
 		# Global learning step counter (Used for learning rate decay calculation)
 		gs = tf.Variable(0, trainable=False)
 
-		# create convolutional layers
-		A = x
-		self.shapes.append(tf.shape(A))
-		convLayersOut = []
-		for i in range(self.convLayerNum):
-			with tf.variable_scope("Conv"+str(i)):
-				for j in range(self.convPerLayer):
-					A = tf.layers.conv2d(A, self.filterNum[i], (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
-					A = tf.layers.dropout(A)
-				if i < (self.convLayerNum-1):
-					A = tf.layers.max_pooling2d(A, (2,2), (2,2), padding="SAME")
-				self.shapes.append(tf.shape(A))
-				convLayersOut.append(A)
+		# Create encoder
+		self.encIn = self.getBatch
+		self.encOut = self.createEncoder(self.encIn)
 
-		# create dense layers
-		A = self.createDenseLayers(A)
-
-		# create upscale layers
-		convLayersOut.pop()
-		for i in list(reversed(range(self.convLayerNum)))[1:]:
-			with tf.variable_scope("Upscale"+str(i+1)):
-				A = tf.image.resize_images(A, size=tf.shape(convLayersOut.pop())[1:3])
-				for j in range(self.deconvPerLayer):
-					A = tf.layers.conv2d(A, self.filterNum[i], (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
-					A = tf.layers.dropout(A)
-				self.shapes.append(tf.shape(A))
-
-		# Output layer
-		with tf.variable_scope("Upscale"+str(0)):
-			A = tf.image.resize_images(A, size=tf.shape(x)[1:3])
-			for j in range(self.deconvPerLayer):
-				A = tf.layers.conv2d(A, 3, (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.sigmoid, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
-				A = tf.layers.dropout(A)
-			self.shapes.append(tf.shape(A))
-			self.out = A
+		# Create decoder
+		self.decIn = self.encOut
+		self.decOut = self.createDecoder(self.decIn)
 
 		# Loss and loss optimizer operations
-		self.loss = tf.losses.mean_squared_error(x, self.out) + tf.losses.get_regularization_loss()
+		self.loss = tf.losses.mean_squared_error(self.encIn, self.decOut) + tf.losses.get_regularization_loss()
 
 		self.learning_rate = tf.train.exponential_decay(self.lr, gs, self.alphaTau, 0.1)
 
@@ -133,23 +104,64 @@ class CAE():
 		self.summaries=tf.summary.merge([lossSummaries])
 		self.saver = tf.train.Saver()
 
-	def createDenseLayers(self,x):
-		N=np.prod(x.get_shape().as_list()[1:])
-		with tf.variable_scope("Dense"):
-			A = tf.layers.flatten(x)
+
+	def createEncoder(self, encIn):
+		# create convolutional layers
+		A = encIn
+		self.shapes.append(tf.shape(A))
+		for i in range(self.convLayerNum):
+			with tf.variable_scope("Conv"+str(i)):
+				for j in range(self.convPerLayer):
+					A = tf.layers.conv2d(A, self.filterNum[i], (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+					A = tf.layers.dropout(A)
+				if i < (self.convLayerNum-1):
+					A = tf.layers.max_pooling2d(A, (2,2), (2,2), padding="SAME")
+				self.shapes.append(tf.shape(A))
+
+		# Middle dense layer
+		self.N=np.prod(A.get_shape().as_list()[1:])
+		with tf.variable_scope("DenseEnc"):
+			A = tf.layers.flatten(A)
 			self.shapes.append(tf.shape(A))
 			A = tf.layers.dense(A, self.latDim, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
 			self.feat = A
 			A = tf.layers.dropout(A)
 			self.shapes.append(tf.shape(A))
+			self.encOut = A
 
+		return self.encOut
+
+	def createDecoder(self, decIn):
+		A = decIn
+		N = self.N
+		with tf.variable_scope("DenseDec"):
 			A = tf.layers.dense(A, N, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
 			A = tf.layers.dropout(A)
 			self.shapes.append(tf.shape(A))
 
-			A = tf.reshape(A, tf.shape(x))
+			A = tf.reshape(A, self.shapes[self.convLayerNum])
 			self.shapes.append(tf.shape(A))
-		return A
+
+		# create upscale layers
+		for i in list(reversed(range(self.convLayerNum)))[1:]:
+			with tf.variable_scope("Upscale"+str(i+1)):
+				shape = self.shapes[i+1]
+				A = tf.image.resize_images(A, size=shape[1:3] )
+				for j in range(self.deconvPerLayer):
+					A = tf.layers.conv2d(A, self.filterNum[i], (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+					A = tf.layers.dropout(A)
+				self.shapes.append(tf.shape(A))
+
+		# Output layer
+		with tf.variable_scope("Upscale"+str(0)):
+			A = tf.image.resize_images(A, size=self.shapes[0][1:3])
+			for j in range(self.deconvPerLayer):
+				A = tf.layers.conv2d(A, 3, (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.sigmoid, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+				A = tf.layers.dropout(A)
+			self.shapes.append(tf.shape(A))
+			out = A
+
+		return out
 
 	def train(self, dirname="summaries",  niter=1000, batchsize=2, display=False, restart=True, printLoss=True):
 		config = tf.ConfigProto(log_device_placement=True)
@@ -191,11 +203,10 @@ class CAE():
 
 			# Display network architectue
 			sess.run(self.train_init)
-			if display:
-				print("Architecture:")
-				for shape in sess.run(self.shapes):
-					print(shape)
-				input("Press any key to continue...")
+			print("Architecture:")
+			for shape in sess.run(self.shapes):
+				print(shape)
+			# input("Press any key to continue...")
 
 			# Main loop
 			for epoch in range(niter):
@@ -237,18 +248,26 @@ class CAE():
 			if display:
 				sess.run(self.dev_init)
 				for i in range(self.devMeta["length"]):
-					x, out = sess.run([self.x, self.out])
+					x, enc, out = sess.run([self.encIn, self.encOut, self.decOut])
 					plt.imshow(x[0])
 					plt.show()
 					plt.imshow(out[0])
 					plt.show()
+					print(enc)					
+					tmpenc = enc.copy()
+					for i in range(10):
+						tmpenc[:,0] = enc[:, 0] + 0.1*i
+						tmp = sess.run(self.decOut, feed_dict={self.decIn: tmpenc})
+						plt.imshow(tmp[0])
+						plt.show()
+
 
 				print("dev done")
 
 				sess.run(self.train_init)
 				for i in range(int(self.trainMeta["length"]/batchsize)):
-					xs, outs = sess.run([self.x, self.out])
-					for x, out in zip(xs, outs):
+					xs, encs, outs = sess.run([self.encIn, self.encOut, self.decOut])
+					for x, enc, out in zip(xs, encs, outs):
 						plt.imshow(x)
 						plt.show()
 						plt.imshow(out)

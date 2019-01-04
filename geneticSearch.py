@@ -5,9 +5,26 @@ import os
 import cv2
 import random
 import json
+import tensorflow as tf
 from AE import CAE, hparametersDef
+import argparse
 from sklearn.model_selection import train_test_split
 
+defMus = {"alpha0": 4.0, "alphaTau": 4.0, "lam": 6, "betaMom": 1, "betaMom2": 3, "f": 3,
+		"convLayerNum": 2.5, "convPerLayer": 2, "deconvPerLayer": 1, "dLayNum": 1,
+		"dLayNeurBase": 0.5, "filterNum0": 6, "filterBase": 2}
+
+defSigmas = {"alpha0": 2, "alphaTau": 0.5, "lam": 4, "betaMom": 0.4, "betaMom2": 0.4, "f": 0.4,
+		"convLayerNum": 0.4, "convPerLayer": 1, "deconvPerLayer": 1, "dLayNum": 0.4,
+		"dLayNeurBase": 0.1, "filterNum0": 4, "filterBase": 0.5}
+
+keys = ["alpha0", "alphaTau", "lam", "betaMom", "betaMom2", "f",
+		"convLayerNum", "convPerLayer", "deconvPerLayer", "dLayNum",
+		"dLayNeurBase", "filterNum0", "filterBase", "latDim"]
+
+mutables = ["alpha0", "alphaTau", "lam", "betaMom", "betaMom2", "f",
+		"convLayerNum", "convPerLayer", "deconvPerLayer", "dLayNum",
+		"dLayNeurBase", "filterNum0", "filterBase", "latDim"]
 
 def loadHparams(dir):
 	with open(os.path.join(dir,"hparameters"), "r") as f:
@@ -101,12 +118,10 @@ def clip(x, num):
 	else:
 		return x
 
-def randomInit():
+def randomInit(mus = defMus):
 	hparameters = {}
-	for i in ["alpha0", "alphaTau", "lam", "betaMom", "betaMom2", "f",
-			"convLayerNum", "convPerLayer", "deconvPerLayer", "dLayNum",
-			"dLayNeurBase", "filterNum0", "filterBase"]:
-		hparameters[i] = generateNewGene(i)
+	for i in keys:
+		hparameters[i] = generateNewGene(i, mus=defMus)
 	return hparameters
 
 def crossover(g1, g2):
@@ -121,29 +136,22 @@ def crossover(g1, g2):
 
 	return newg
 
-defMus = {"alpha0": 4.0, "alphaTau": 4.0, "lam": 6, "betaMom": 1, "betaMom2": 3, "f": 3,
-		"convLayerNum": 2.5, "convPerLayer:" 2.5, "deconvPerLazer": 2.5, "dLayNum": 1,
-		"dLayNeurBase": 0.5, "filterNum0": 6, "FilterBase": 2}
-
-defSigmas = {"alpha0": 1, "alphaTau": 0.5, "lam": 4, "betaMom": 0.4, "betaMom2": 0.4, "f": 0.4,
-		"convLayerNum": 0.4, "convPerLayer:" 1.5, "deconvPerLazer": 1.5, "dLayNum": 0.4,
-		"dLayNeurBase": 0.1, "filterNum0": 4, "FilterBase": 0.5}
-
 def argForRNG(keyword, mu, sigma, type="gaus"):
 	if type == "gaus":
 		return mu[keyword], sigma[keyword]
-	else
+	else:
 		return int(mu[keyword] - sigma[keyword]), int(mu[keyword] + sigma[keyword])
 
 def generateNewGene(name, mus=defMus, sigmas=defSigmas):
 	if name == "alpha0":
-		return 0.1**random.gauss(*argForRNG("alpha", mus, sigmas, type="gaus"))
+		return 0.1**random.gauss(*argForRNG("alpha0", mus, sigmas, type="gaus"))
 
 	if name == "alphaTau":
 		return 10.0**random.gauss(*argForRNG("alphaTau", mus, sigmas, type="gaus"))
 
 	if name == "lam":
-		return 0.1**random.randint(*argForRNG("lam", mus, sigmas, type="uniform"))
+		# return 0.1**random.randint(*argForRNG("lam", mus, sigmas, type="uniform"))
+		return 0.0
 
 	if name == "betaMom":
 		betaMom = clip(1 - 0.1**random.gauss(*argForRNG("betaMom", mus, sigmas, type="gaus")), 0)
@@ -152,7 +160,7 @@ def generateNewGene(name, mus=defMus, sigmas=defSigmas):
 		return betaMom
 
 	if name == "betaMom2":
-		return clip(1 - 0.1**random.gauss(*argForRNG("betaMom2", mus, sigmas, type="gaus")), 0)
+		return clip(1 - 0.1**random.gauss(*argForRNG("betaMom2", mus, sigmas, type="gaus")), 0.01)
 
 	if name == "f":
 		# return clip(int(random.gauss(*argForRNG("f", mus, sigmas, type="gaus"))), 1)
@@ -161,7 +169,8 @@ def generateNewGene(name, mus=defMus, sigmas=defSigmas):
 	if name == "convLayerNum":
 		cLN = clip(int(random.gauss(*argForRNG("convLayerNum", mus, sigmas, type="gaus"))), 1)
 		# return clip(cLN, 2)
-		return 5
+		# return 5
+		return random.randint(4,6)
 
 	if name == "convPerLayer":
 		return clip(int(random.randint(*argForRNG("convPerLayer", mus, sigmas, type="uniform"))), 1)
@@ -181,45 +190,12 @@ def generateNewGene(name, mus=defMus, sigmas=defSigmas):
 		return clip(random.randint(*argForRNG("filterNum0", mus, sigmas, type="uniform")), 1)
 
 	if name == "filterBase":
-		return clip(random.gauss(*argForRNG("flterBase", mus, sigmas, type="gaus")), 0.05)
+		return clip(random.gauss(*argForRNG("filterBase", mus, sigmas, type="gaus")), 0.05)
 
-if __name__ == '__main__':
+	if name == "latDim":
+		return 30
 
-	p = argparse.ArgumentParser()
-
-	p.add_argument("--imgs", required=False, type=str, default="data/", help='input image dir')
-	p.add_argument("--sums", required=False, type=str, default="summaries", help='summaries dir')
-	p.add_argument("--rescale", required=False, type=int, default=1, help='resize scale')
-	p.add_argument("--niter", required=False, type=int, default=1000, help='number of iterations')
-	p.add_argument("--batch-size", required=False, type=int, default=1, help='batch size')
-	p.add_argument("--in-memory", action='store_true', help='Keep data in memory')
-	p.add_argument("--remake", action='store_true', help='Remake database')
-	p.add_argument("--npop",required=False, type=int, default=10, help='Population number per generation')
-	p.add_argument("--mchance",required=False, type=int, default=0.1, help='Mutation chance')
-
-	args = p.parse_args()
-
-	datadir = args.imgs
-	niter = args.niter
-	batchsize = args.batch_size
-	sumdir = args.sums
-	rescale = args.rescale
-	inMem = args.in_memory
-	remake = args.remake
-
-	npop = args.npop
-	mutation = args.mchance
-
-
-	# Remake databases
-	if remake:
-		imageList = sorted(os.listdir(datadir))
-		sizes = map(lambda file: Image.open(os.path.join(datadir, file)).size, imageList)
-		minShape = sorted(list(set(sizes)))[1]
-		print("Reshaping images to: " + str(minShape))
-		input("Press any key to continue...")
-		buildDatabase(datadir, minShape)
-
+def createDatabase():
 	# Setting up database
 	if inMem:
 		print("Setting up database from memory...")
@@ -228,7 +204,8 @@ if __name__ == '__main__':
 		sizes = map(lambda file: Image.open(os.path.join(datadir, file)).size, imageList)
 		minShape = sorted(sizes)[1]
 
-		imgs = np.array([readImage(file) for file in imageList])
+		imgs = np.array([readImage(file, minShape) for file in imageList])
+		imgs = imgs/255.0
 
 		# random.seed(1337)
 		shuffleList = np.arange(len(imgs))
@@ -264,35 +241,109 @@ if __name__ == '__main__':
 		devDB = devDB.map(lambda x: tf.reshape(tf.decode_raw(x, np.dtype(devMeta["dtype"])), devMeta["shape"]))
 		testDB = testDB.map(lambda x: tf.reshape(tf.decode_raw(x, np.dtype(testMeta["dtype"])), testMeta["shape"]))
 
-
 	trainDB = trainDB.shuffle(100).repeat().batch(batchsize)
 	devDB = devDB.shuffle(100).repeat().batch(1)
 	testDB = testDB.shuffle(100).repeat().batch(1)
 
-	test, dev, train, imgs = None, None, None, None
+	return trainDB, devDB, testDB, trainMeta, devMeta, testMeta
 
-	hparameters = [randomInit() for i in range(npop)]
+if __name__ == '__main__':
 
-	generation = 0
+	p = argparse.ArgumentParser()
+
+	p.add_argument("--imgs", required=False, type=str, default="data/", help='input image dir')
+	p.add_argument("--sums", required=False, type=str, default="summaries", help='summaries dir')
+	p.add_argument("--rescale", required=False, type=int, default=1, help='resize scale')
+	p.add_argument("--niter", required=False, type=int, default=1000, help='number of iterations')
+	p.add_argument("--batch-size", required=False, type=int, default=1, help='batch size')
+	p.add_argument("--in-memory", action='store_true', help='Keep data in memory')
+	p.add_argument("--remake", action='store_true', help='Remake database')
+	p.add_argument("--npop",required=False, type=int, default=10, help='Population number per generation')
+	p.add_argument("--mchance",required=False, type=float, default=0.1, help='Mutation chance')
+
+	args = p.parse_args()
+
+	datadir = args.imgs
+	niter = args.niter
+	batchsize = args.batch_size
+	sumdir = args.sums
+	rescale = args.rescale
+	inMem = args.in_memory
+	remake = args.remake
+
+	npop = args.npop
+	mutation = args.mchance
+
+	# Remake databases
+	if remake:
+		imageList = sorted(os.listdir(datadir))
+		sizes = map(lambda file: Image.open(os.path.join(datadir, file)).size, imageList)
+		minShape = sorted(list(set(sizes)))[1]
+		print("Reshaping images to: " + str(minShape))
+		input("Press any key to continue...")
+		buildDatabase(datadir, minShape)
+
+
+	def start(startPoint):
+		if startPoint is not None:
+			loadHparameter = loadHparams(startPoint)
+			loadHparameter["latDim"] = generateNewGene("latDim")
+			hparameters = [randomInit() for i in range(npop)]
+			for i in range(3):
+				for key in hparameters[i]:
+					hparameters[i][key] = loadHparameter[key]
+		else:
+			hparameters = [randomInit() for i in range(npop)]
+		generation = 0
+
+		return hparameters, generation
+
+	def continueGen(genNum):
+		pops = list(os.walk(os.path.join("summaries", str(genNum))))[0][1]
+		hparameters = []
+		for pop in pops:
+			loadHparameter = loadHparams(os.path.join("summaries", str(genNum), pop))
+			tmp = {}
+			for key in keys:
+				tmp[key] = loadHparameter[key]
+			hparameters.append(tmp)
+
+		for i in range(npop - len(hparameters)):
+			hparameters.append(randomInit())
+
+		return hparameters, genNum+1
+
+	# hparameters, generation = start("startPoint")
+	hparameters, generation = continueGen(29)
+
+	print(generation)
+	# print(hparameters)
+	# input()
+
 	while True:
-		# random.seed(1337)
+		fitness = []
 
 		# Evaluating population
 		for i, hparameter in enumerate(hparameters):
+			trainDB, devDB, testDB, trainMeta, devMeta, testMeta = createDatabase()
+			print(i)
+			print(hparameter)
 			model = CAE(trainDB, devDB, testDB, trainMeta, devMeta, testMeta, hparameter)
 			devLoss, trainLoss = model.train(dirname=os.path.join("summaries", str(generation), str(i)),
 											niter=niter,
 											batchsize=batchsize,
 											display=False,
 											printLoss=True)
+			tf.reset_default_graph()
 			fitness.append(trainLoss)
 
 		# Report
 		chosen = list(np.argsort(fitness))[:5]
 		with open(os.path.join("summaries", str(generation), "geneticReport"), "w") as f:
 			f.write(str(chosen)+"\n"+str(list(sorted(fitness))) + "\n" +
-				"Best of generation " + str(generation) + "\n" +
-				str(hparameters[np.array(chosen)]))
+				"Best of generation " + str(generation) + "\n")
+			for i in chosen:
+				f.write(str(hparameters[i]) + "\n")
 
 		# Selection
 		newHparameters = []
@@ -305,9 +356,10 @@ if __name__ == '__main__':
 		# Mutation
 		for child in newHparameters:
 			for key in child:
-				r = random.random()
-				if r < mutation:
-					child[key] = generateNewGene(key)
+				if key in mutables:
+					r = random.random()
+					if r < mutation:
+						child[key] = generateNewGene(key)
 
 		# Add random children
 		newHparameters = newHparameters[:npop] + [randomInit() for i in range(npop - len(newHparameters))]
