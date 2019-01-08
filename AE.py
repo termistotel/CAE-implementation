@@ -47,6 +47,7 @@ class CAE():
   def createGraph(self, trainDB, devDB, testDB, dataShape):
     self.shapes = []
     self.layers = []
+    self.activation = tf.nn.leaky_relu
 
     # Database iterator and operations to reinitialize the iterator
     iter = tf.data.Iterator.from_structure(trainDB.output_types, trainDB.output_shapes)
@@ -116,7 +117,7 @@ class CAE():
     for i in range(self.convLayerNum):
       with tf.variable_scope("Conv"+str(i)):
         for j in range(self.convPerLayer):
-          A = tf.layers.conv2d(A, self.filterNum[i], (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+          A = tf.layers.conv2d(A, self.filterNum[i], (self.f, self.f), (1,1), padding="SAME", activation=self.activation, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
           A = tf.layers.dropout(A)
         if i < (self.convLayerNum-1):
           A = tf.layers.max_pooling2d(A, (2,2), (2,2), padding="SAME")
@@ -129,7 +130,7 @@ class CAE():
       A = tf.layers.flatten(A)
       self.shapes.append(tf.shape(A))
       self.layers.append(A)
-      A = tf.layers.dense(A, self.latDim, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+      A = tf.layers.dense(A, self.latDim, activation=self.activation, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
       self.feat = A
       A = tf.layers.dropout(A)
       self.shapes.append(tf.shape(A))
@@ -142,7 +143,7 @@ class CAE():
     A = decIn
     N = self.N
     with tf.variable_scope("DenseDec"):
-      A = tf.layers.dense(A, N, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+      A = tf.layers.dense(A, N, activation=self.activation, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
       A = tf.layers.dropout(A)
       self.shapes.append(tf.shape(A))
       self.layers.append(A)
@@ -158,7 +159,7 @@ class CAE():
         shape = self.shapes[i+1]
         A = tf.image.resize_images(A, size=shape[1:3] )
         for j in range(self.deconvPerLayer):
-          A = tf.layers.conv2d(A, self.filterNum[i], (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+          A = tf.layers.conv2d(A, self.filterNum[i], (self.f, self.f), (1,1), padding="SAME", activation=self.activation, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
           A = tf.layers.dropout(A)
         self.shapes.append(tf.shape(A))
         self.layers.append(A)
