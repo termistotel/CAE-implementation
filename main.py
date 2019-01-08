@@ -187,8 +187,8 @@ else:
 
 
 trainDB = trainDB.map(augment).shuffle(100).repeat().batch(batchsize)
-devDB = devDB.map(augment).shuffle(100).repeat().batch(1)
-testDB = testDB.map(augment).shuffle(100).repeat().batch(1)
+devDB = devDB.shuffle(100).repeat().batch(1)
+testDB = testDB.shuffle(100).repeat().batch(1)
 
 test, dev, train, imgs = None, None, None, None
 
@@ -198,7 +198,7 @@ hparameters = {}
 hparameters = loadHparams("startPoint")
 
 # hparameters["alpha0"] = hparameters["alpha0"]/10
-# hparameters["alphaTau"] = 200000
+hparameters["alphaTau"] = hparameters["alphaTau"]
 # hparameters["lam"] = 1*1e-6
 hparameters["lam"] = 0.0
 # hparameters["betaMom"] = 0.9
