@@ -65,14 +65,17 @@ class CAE():
 
     # Create encoder
     self.encIn = self.getBatch
-    self.encOut = self.createEncoder(self.encIn)
+    self.latMean, self.latStd = self.createEncoder(self.encIn)
 
     # Create decoder
-    self.decIn = self.encOut
+    e = tf.random.normal(tf.shape(self.latStd), 0.0, 1.0, dtype=tf.float32)
+    self.decIn = self.latMean + e*self.latStd
     self.decOut = self.createDecoder(self.decIn)
 
     # Loss and loss optimizer operations
-    self.loss = tf.losses.mean_squared_error(self.encIn, self.decOut) + tf.losses.get_regularization_loss()
+    self.recError = tf.losses.mean_squared_error(self.encIn, self.decOut)
+    self.k1_div = -0.5 * tf.reduce_sum(1 + 2*self.latStd - tf.square(self.latMean) - tf.exp(2*self.latStd))
+    self.loss = self.recError + self.k1_div + tf.losses.get_regularization_loss()
 
     self.learning_rate = tf.train.exponential_decay(self.lr, gs, self.alphaTau, 0.1)
 
@@ -129,14 +132,12 @@ class CAE():
       A = tf.layers.flatten(A)
       self.shapes.append(tf.shape(A))
       self.layers.append(A)
-      A = tf.layers.dense(A, self.latDim, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
-      self.feat = A
-      A = tf.layers.dropout(A)
-      self.shapes.append(tf.shape(A))
-      self.layers.append(A)
-      self.encOut = A
+      self.latMean = tf.layers.dense(A, self.latDim, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+      self.latStd = tf.layers.dense(A, self.latDim, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
+      self.shapes.append(tf.shape(self.latMean))
+      self.layers.append(self.latMean)
 
-    return self.encOut
+    return self.latMean, self.latStd
 
   def createDecoder(self, decIn):
     A = decIn
@@ -187,7 +188,7 @@ class CAE():
       sess.run(tf.global_variables_initializer())
       self.saver.restore(sess, os.path.join(self.dirname,"model"))
 
-      result = sess.run(self.encOut, feed_dict={self.encIn: X})
+      result = sess.run(self.latMean, feed_dict={self.encIn: X})
     return result
 
   def decode(self, z, printStats=True):
