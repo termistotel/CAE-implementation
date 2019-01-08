@@ -188,8 +188,8 @@ hparameters = loadHparams("startPoint")
 
 # hparameters["alpha0"] = hparameters["alpha0"]/10
 # hparameters["alphaTau"] = 200000
-hparameters["lam"] = 1*1e-6
-# hparameters["lam"] = 0.0
+# hparameters["lam"] = 1*1e-6
+hparameters["lam"] = 0.0
 # hparameters["betaMom"] = 0.9
 # hparameters["betaMom2"] = 0.999
 # hparameters["f"] = 3
@@ -208,10 +208,13 @@ hparameters["niter"] = niter
 print(hparameters)
 input("Press any key to continue")
 
-model = CAE(trainDB, devDB, testDB, trainMeta, devMeta, testMeta, hparameters)
-model.train(dirname=os.path.join(sumdir, "test"),
-			niter=hparameters["niter"],
+dirname = os.path.join(sumdir, "test")
+
+model = CAE(trainDB, devDB, testDB, trainMeta, devMeta, testMeta,
+			dirname=dirname, hparameters = hparameters)
+model.train(niter=hparameters["niter"],
 			batchsize=hparameters["batchsize"],
+			restart=True,
 			display=True,
 			printLoss=True)
 

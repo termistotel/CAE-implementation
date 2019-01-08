@@ -328,11 +328,13 @@ if __name__ == '__main__':
 			trainDB, devDB, testDB, trainMeta, devMeta, testMeta = createDatabase()
 			print(i)
 			print(hparameter)
-			model = CAE(trainDB, devDB, testDB, trainMeta, devMeta, testMeta, hparameter)
-			devLoss, trainLoss = model.train(dirname=os.path.join("summaries", str(generation), str(i)),
-											niter=niter,
+			dirname = os.path.join("summaries", str(generation), str(i))
+			model = CAE(trainDB, devDB, testDB, trainMeta, devMeta, testMeta,
+					dirname=dirname, hparameters=hparameter)
+			devLoss, trainLoss = model.train(niter=niter,
 											batchsize=batchsize,
 											display=False,
+											restart=True,
 											printLoss=True)
 			tf.reset_default_graph()
 			fitness.append(trainLoss)
