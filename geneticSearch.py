@@ -98,7 +98,6 @@ def buildDatabase(datadir, shape):
   with open("test.metadata", 'w') as mdata:
     mdata.write(json.dumps({'shape': test.shape[1:], 'length': len(test), "dtype": str(test.dtype)}))
 
-
 def getMetaData():
   with open("train.metadata",'r') as trainf:
     trainm = json.load(trainf)
@@ -241,9 +240,9 @@ def createDatabase():
     devDB = devDB.map(lambda x: tf.reshape(tf.decode_raw(x, np.dtype(devMeta["dtype"])), devMeta["shape"]))
     testDB = testDB.map(lambda x: tf.reshape(tf.decode_raw(x, np.dtype(testMeta["dtype"])), testMeta["shape"]))
 
-  trainDB = trainDB.shuffle(100).repeat().batch(batchsize)
-  devDB = devDB.shuffle(100).repeat().batch(1)
-  testDB = testDB.shuffle(100).repeat().batch(1)
+  trainDB = trainDB.map(augment).shuffle(100).repeat().batch(batchsize)
+  devDB = devDB.map(augment).shuffle(100).repeat().batch(1)
+  testDB = testDB.map(augment).shuffle(100).repeat().batch(1)
 
   return trainDB, devDB, testDB, trainMeta, devMeta, testMeta
 
@@ -260,9 +259,10 @@ if __name__ == '__main__':
   p.add_argument("--remake", action='store_true', help='Remake database')
   p.add_argument("--npop",required=False, type=int, default=10, help='Population number per generation')
   p.add_argument("--mchance",required=False, type=float, default=0.1, help='Mutation chance')
-
+  p.add_argument("--colordiv", required=False, type=float, default=0.2, help='Color divergence standard deviation')
   args = p.parse_args()
 
+  colorDiv = args.colordiv
   datadir = args.imgs
   niter = args.niter
   batchsize = args.batch_size
@@ -273,6 +273,17 @@ if __name__ == '__main__':
 
   npop = args.npop
   mutation = args.mchance
+
+  def augment(img):
+    outImg = img
+    # 50% chance to flip image in either direction
+    outImg = tf.cond(tf.random.uniform([]) < 0.5, lambda: tf.reverse(outImg, axis=[0]) , lambda: outImg)
+    outImg = tf.cond(tf.random.uniform([]) < 0.5, lambda: tf.reverse(outImg, axis=[1]) , lambda: outImg)
+
+    # Color Divergance shift
+    a = tf.random.normal([1,1,3], mean=1, stddev=colorDiv, dtype=tf.float64)
+    outImg = tf.clip_by_value(outImg*a, 0, 1)
+    return outImg
 
   # Remake databases
   if remake:
