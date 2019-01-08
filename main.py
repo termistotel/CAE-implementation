@@ -98,6 +98,11 @@ def getMetaData():
 
   return trainm, devm, testm
 
+def augment(img):
+  outImg = img
+  outImg = tf.cond(tf.random.uniform([]) < 0.5, lambda: tf.reverse(outImg, axis=[0]) , lambda: outImg)
+  outImg = tf.cond(tf.random.uniform([]) < 0.5, lambda: tf.reverse(outImg, axis=[1]) , lambda: outImg)
+  return outImg
 
 p = argparse.ArgumentParser()
 
@@ -175,9 +180,9 @@ else:
   testDB = testDB.map(lambda x: tf.reshape(tf.decode_raw(x, np.dtype(testMeta["dtype"])), testMeta["shape"]))
 
 
-trainDB = trainDB.shuffle(100).repeat().batch(batchsize)
-devDB = devDB.shuffle(100).repeat().batch(1)
-testDB = testDB.shuffle(100).repeat().batch(1)
+trainDB = trainDB.shuffle(100).map(augment).repeat().batch(batchsize)
+devDB = devDB.shuffle(100).map(augment).repeat().batch(1)
+testDB = testDB.shuffle(100).map(augment).repeat().batch(1)
 
 test, dev, train, imgs = None, None, None, None
 
