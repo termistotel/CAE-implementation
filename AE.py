@@ -12,7 +12,9 @@ hparametersDef = {"alphaTau": 10000, "alpha0": 0.001, "lam": 0.001, "betaMom": 0
 				"dLayNum": 0, "dLayNeurBase": 0.1, "latDim": 20}
 
 class CAE():
-	def __init__(self, trainDB, devDB, testDB, trainMeta, devMeta, testMeta, hparameters=hparametersDef):
+	def __init__(self, trainDB, devDB, testDB, trainMeta, devMeta, testMeta, dirname, hparameters=hparametersDef):
+		self.dirname = dirname
+
 		self.alphaTau = hparameters["alphaTau"]
 		self.alpha0 = hparameters["alpha0"]
 		self.lam = hparameters["lam"]
@@ -44,6 +46,7 @@ class CAE():
 
 	def createGraph(self, trainDB, devDB, testDB, dataShape):
 		self.shapes = []
+		self.layers = []
 
 		# Database iterator and operations to reinitialize the iterator
 		iter = tf.data.Iterator.from_structure(trainDB.output_types, trainDB.output_shapes)
@@ -109,6 +112,7 @@ class CAE():
 		# create convolutional layers
 		A = encIn
 		self.shapes.append(tf.shape(A))
+		self.layers.append(A)
 		for i in range(self.convLayerNum):
 			with tf.variable_scope("Conv"+str(i)):
 				for j in range(self.convPerLayer):
@@ -116,6 +120,7 @@ class CAE():
 					A = tf.layers.dropout(A)
 				if i < (self.convLayerNum-1):
 					A = tf.layers.max_pooling2d(A, (2,2), (2,2), padding="SAME")
+				self.layers.append(A)
 				self.shapes.append(tf.shape(A))
 
 		# Middle dense layer
@@ -123,10 +128,12 @@ class CAE():
 		with tf.variable_scope("DenseEnc"):
 			A = tf.layers.flatten(A)
 			self.shapes.append(tf.shape(A))
+			self.layers.append(A)
 			A = tf.layers.dense(A, self.latDim, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
 			self.feat = A
 			A = tf.layers.dropout(A)
 			self.shapes.append(tf.shape(A))
+			self.layers.append(A)
 			self.encOut = A
 
 		return self.encOut
@@ -138,9 +145,12 @@ class CAE():
 			A = tf.layers.dense(A, N, activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
 			A = tf.layers.dropout(A)
 			self.shapes.append(tf.shape(A))
+			self.layers.append(A)
 
-			A = tf.reshape(A, self.shapes[self.convLayerNum])
+			resh = self.layers[self.convLayerNum].get_shape().as_list()[1:]
+			A = tf.reshape(A, tuple([-1] + resh))
 			self.shapes.append(tf.shape(A))
+			self.layers.append(A)
 
 		# create upscale layers
 		for i in list(reversed(range(self.convLayerNum)))[1:]:
@@ -151,6 +161,7 @@ class CAE():
 					A = tf.layers.conv2d(A, self.filterNum[i], (self.f, self.f), (1,1), padding="SAME", activation=tf.nn.relu, kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lam))
 					A = tf.layers.dropout(A)
 				self.shapes.append(tf.shape(A))
+				self.layers.append(A)
 
 		# Output layer
 		with tf.variable_scope("Upscale"+str(0)):
@@ -163,7 +174,32 @@ class CAE():
 
 		return out
 
-	def train(self, dirname="summaries",  niter=1000, batchsize=2, display=False, restart=True, printLoss=True):
+	def reconstruct(self, X, printStats=True):
+		with tf.Session() as sess:
+			sess.run(tf.global_variables_initializer())
+			self.saver.restore(sess, os.path.join(self.dirname,"model"))
+
+			result = sess.run(self.decOut, feed_dict={self.encIn: X})
+		return result
+
+	def encode(self, X, printStats=True):
+		with tf.Session() as sess:
+			sess.run(tf.global_variables_initializer())
+			self.saver.restore(sess, os.path.join(self.dirname,"model"))
+
+			result = sess.run(self.encOut, feed_dict={self.encIn: X})
+		return result
+
+	def decode(self, z, printStats=True):
+		with tf.Session() as sess:
+			sess.run(tf.global_variables_initializer())
+			sess.run(self.train_init)
+			self.saver.restore(sess, os.path.join(self.dirname,"model"))
+
+			result = sess.run(self.decOut, feed_dict={self.decIn: z})
+		return result
+
+	def train(self,  niter=1000, batchsize=2, display=False, restart=True, printLoss=True):
 		config = tf.ConfigProto(log_device_placement=True)
 		# config.gpu_options.allow_growth = True
 		hparameters = {
@@ -185,6 +221,8 @@ class CAE():
 						'latDim': self.latDim
 						}
 
+		dirname = self.dirname
+
 		# Make directory for outputing result info
 		if not os.path.exists(dirname):
 			os.makedirs(dirname)
@@ -197,9 +235,11 @@ class CAE():
 		summ_writer = tf.summary.FileWriter(dirname)
 
 		with tf.Session(config=config) as sess:
+			sess.run(tf.global_variables_initializer())
 
-			if restart:
-				sess.run(tf.global_variables_initializer())
+			# Load previous session
+			if not restart:
+				self.saver.restore(sess, os.path.join(dirname,"model"))
 
 			# Display network architectue
 			sess.run(self.train_init)
@@ -253,7 +293,7 @@ class CAE():
 					plt.show()
 					plt.imshow(out[0])
 					plt.show()
-					print(enc)					
+					print(enc)
 					tmpenc = enc.copy()
 					for i in range(10):
 						tmpenc[:,0] = enc[:, 0] + 0.1*i
