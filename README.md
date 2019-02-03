@@ -1,3 +1,3 @@
-# CNN-Test
+# AE - implementation
 
-Testing convolution neural networks in tensorflow, keras and similar.
+Implementing convolutional autoencoder in tensorflow
